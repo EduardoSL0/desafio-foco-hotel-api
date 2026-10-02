@@ -1,5 +1,7 @@
 # Foco Hotel API — Desafio Foco Multimídia
 
+[![CI](https://github.com/EduardoSL0/desafio-foco-hotel-api/actions/workflows/ci.yml/badge.svg)](https://github.com/EduardoSL0/desafio-foco-hotel-api/actions/workflows/ci.yml)
+
 API REST em **Laravel 12 (PHP 8.2+)** para gestão hoteleira:
 
 - importação de **hotéis, quartos e reservas a partir de XML**, executada via **CRON**;
