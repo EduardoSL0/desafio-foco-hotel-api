@@ -3,7 +3,10 @@
 namespace App\Http\Requests;
 
 use App\Enums\PaymentMethod;
+use App\Models\Room;
+use App\Models\User;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 class StoreReserveRequest extends QuoteReserveRequest
 {
@@ -23,6 +26,28 @@ class StoreReserveRequest extends QuoteReserveRequest
             'payments.*.value' => ['required', 'numeric', 'min:0.01'],
             'payments.*.installments' => ['sometimes', 'integer', "between:1,{$maxInstallments}"],
         ];
+    }
+
+    /**
+     * A rota de reserva é pública (motor de reservas), mas registrar pagamento
+     * junto com a reserva é exclusivo da equipe do hotel (ex.: balcão). Sem isso,
+     * qualquer cliente poderia criar uma reserva já "paga".
+     */
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator) {
+            if (empty($this->input('payments')) || $validator->errors()->isNotEmpty()) {
+                return;
+            }
+
+            /** @var User|null $user */
+            $user = $this->user('sanctum');
+            $hotelId = Room::query()->whereKey($this->input('room_id'))->value('hotel_id');
+
+            if (! $user || $hotelId === null || ! $user->worksAt((int) $hotelId)) {
+                $validator->errors()->add('payments', 'Somente a equipe autenticada do hotel pode registrar pagamentos junto com a reserva.');
+            }
+        });
     }
 
     public function messages(): array

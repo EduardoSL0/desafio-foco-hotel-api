@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\ReserveStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\QuoteReserveRequest;
 use App\Http\Requests\StoreReserveRequest;
@@ -29,7 +30,7 @@ class ReserveController extends Controller
             ->when(! $user->isAdmin(), fn ($q) => $q->where('hotel_id', $user->hotel_id))
             ->when($request->integer('hotel_id'), fn ($q, int $id) => $q->where('hotel_id', $id))
             ->when($request->integer('room_id'), fn ($q, int $id) => $q->where('room_id', $id))
-            ->when($request->string('status')->value(), fn ($q, string $s) => $q->where('status', $s))
+            ->when(ReserveStatus::tryFrom($request->string('status')->value()), fn ($q, ReserveStatus $s) => $q->where('status', $s))
             ->orderByDesc('check_in')
             ->paginate($perPage)
             ->withQueryString();

@@ -61,7 +61,8 @@ final class ReserveService
                 throw new RoomUnavailableException;
             }
 
-            $coupon = $this->resolveCoupon($data['coupon_code'] ?? null, $room);
+            // Lock no cupom impede que reservas simultâneas ultrapassem o limite de usos.
+            $coupon = $this->resolveCoupon($data['coupon_code'] ?? null, $room, lock: true);
             $breakdown = $this->calculator->quote($room, $checkIn, $checkOut, $coupon);
 
             $reserve = $this->persist($room, $breakdown, $coupon);
@@ -91,7 +92,14 @@ final class ReserveService
             throw new ReserveCancelledException;
         }
 
-        $reserve->update(['status' => ReserveStatus::Cancelled]);
+        DB::transaction(function () use ($reserve) {
+            $reserve->update(['status' => ReserveStatus::Cancelled]);
+
+            // Devolve o uso do cupom para que ele volte a ficar disponível.
+            if ($reserve->coupon_id !== null) {
+                Coupon::query()->whereKey($reserve->coupon_id)->where('used_count', '>', 0)->decrement('used_count');
+            }
+        });
 
         Log::info('reserve.cancelled', ['reserve_id' => $reserve->id]);
 
@@ -141,13 +149,16 @@ final class ReserveService
             ->all();
     }
 
-    private function resolveCoupon(?string $code, Room $room): ?Coupon
+    private function resolveCoupon(?string $code, Room $room, bool $lock = false): ?Coupon
     {
         if ($code === null || $code === '') {
             return null;
         }
 
-        $coupon = Coupon::query()->where('code', strtoupper($code))->first();
+        $coupon = Coupon::query()
+            ->where('code', strtoupper(trim($code)))
+            ->when($lock, fn ($q) => $q->lockForUpdate())
+            ->first();
 
         if (! $coupon || ! $coupon->isValidFor($room->hotel_id)) {
             throw ValidationException::withMessages(['coupon_code' => 'Cupom inválido, expirado ou não aplicável a este hotel.']);
