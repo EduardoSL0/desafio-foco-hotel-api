@@ -1,6 +1,6 @@
 # Foco Hotel API — Desafio Foco Multimídia
 
-API REST em **Laravel 11 (PHP 8.2+)** para gestão hoteleira:
+API REST em **Laravel 12 (PHP 8.2+)** para gestão hoteleira:
 
 - importação de **hotéis, quartos e reservas a partir de XML**, executada via **CRON**;
 - **CRUD de quartos/acomodações**;
@@ -36,7 +36,7 @@ API REST em **Laravel 11 (PHP 8.2+)** para gestão hoteleira:
 | Camada        | Tecnologia                                   |
 |---------------|----------------------------------------------|
 | Linguagem     | PHP 8.3 (compatível com 8.2+)                |
-| Framework     | Laravel 11                                   |
+| Framework     | Laravel 12                                   |
 | Autenticação  | Laravel Sanctum (Bearer token)               |
 | Banco         | MySQL 8 (testes usam SQLite em memória)      |
 | Servidor      | Nginx + PHP-FPM                              |
@@ -101,6 +101,14 @@ cp .env.example .env            # ajuste DB_HOST=127.0.0.1 e as credenciais
 php artisan key:generate
 php artisan migrate --seed
 php artisan serve               # http://localhost:8000
+```
+
+**Sem MySQL?** Dá para usar SQLite: no `.env` defina `DB_CONNECTION=sqlite`, comente as linhas `DB_HOST` a `DB_PASSWORD`, crie o arquivo vazio `database/database.sqlite` e rode `php artisan migrate --seed`.
+
+Para o cron em ambiente local, rode em um terminal separado:
+
+```bash
+php artisan schedule:work
 ```
 
 ---

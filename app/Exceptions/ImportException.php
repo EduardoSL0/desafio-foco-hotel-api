@@ -4,6 +4,4 @@ namespace App\Exceptions;
 
 use RuntimeException;
 
-class ImportException extends RuntimeException
-{
-}
+class ImportException extends RuntimeException {}
