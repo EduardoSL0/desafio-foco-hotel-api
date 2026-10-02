@@ -17,6 +17,7 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 class RoomController extends Controller
 {
@@ -51,9 +52,24 @@ class RoomController extends Controller
         return new RoomResource($room->load('hotel'));
     }
 
-    public function update(UpdateRoomRequest $request, Room $room): RoomResource
+    public function update(UpdateRoomRequest $request, Room $room, AvailabilityService $availability): RoomResource
     {
         Gate::authorize('update', $room);
+
+        // Reduzir o inventário abaixo das reservas futuras já vendidas causaria overbooking.
+        if ($request->has('inventory') && (int) $request->validated('inventory') < $room->inventory) {
+            $lastCheckOut = $room->reserves()->active()->where('check_out', '>', CarbonImmutable::today())->max('check_out');
+
+            if ($lastCheckOut !== null) {
+                $peak = $availability->peakOccupation($room, CarbonImmutable::today(), CarbonImmutable::parse($lastCheckOut));
+
+                if ((int) $request->validated('inventory') < $peak) {
+                    throw ValidationException::withMessages([
+                        'inventory' => "Há {$peak} unidade(s) reservadas simultaneamente em datas futuras; o inventário não pode ser menor que isso.",
+                    ]);
+                }
+            }
+        }
 
         $room->update($request->validated());
 
