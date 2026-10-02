@@ -7,6 +7,8 @@ x-app-env: &app-env
   DB_USERNAME: foco
   DB_PASSWORD: secret
   APP_URL: http://localhost:8080
+  CACHE_STORE: database
+  LOG_FILE_PERMISSION: "0666"
 
 services:
   app:
@@ -30,6 +32,8 @@ services:
       context: .
       dockerfile: docker/php/Dockerfile
     container_name: foco-scheduler
+    # Mesmo usuário do PHP-FPM: arquivos criados pelo cron continuam graváveis pela API.
+    user: www-data
     environment:
       <<: *app-env
       CONTAINER_ROLE: scheduler

@@ -4,6 +4,10 @@ use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Processor\PsrLogMessageProcessor;
 
+// Permissão dos arquivos de log. No Docker usamos LOG_FILE_PERMISSION=0666 para que um log
+// criado por um comando executado como root continue gravável pelo PHP-FPM (www-data).
+$filePermission = env('LOG_FILE_PERMISSION') ? octdec(env('LOG_FILE_PERMISSION')) : null;
+
 return [
 
     'default' => env('LOG_CHANNEL', 'stack'),
@@ -23,6 +27,7 @@ return [
 
         'single' => [
             'driver' => 'single',
+            'permission' => $filePermission,
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
             'replace_placeholders' => true,
@@ -30,6 +35,7 @@ return [
 
         'daily' => [
             'driver' => 'daily',
+            'permission' => $filePermission,
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
             'days' => env('LOG_DAILY_DAYS', 14),
@@ -39,6 +45,7 @@ return [
         // Log de acesso da API (método, rota, status, tempo de resposta, usuário).
         'api' => [
             'driver' => 'daily',
+            'permission' => $filePermission,
             'path' => storage_path('logs/api.log'),
             'level' => 'info',
             'days' => 30,
@@ -47,6 +54,7 @@ return [
         // Log da rotina de importação de XML executada via CRON.
         'import' => [
             'driver' => 'daily',
+            'permission' => $filePermission,
             'path' => storage_path('logs/import.log'),
             'level' => 'info',
             'days' => 30,
