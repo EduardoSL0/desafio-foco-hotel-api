@@ -630,3 +630,8 @@ Antes da entrega o projeto passou por uma revisão; os problemas encontrados e a
 | Valores monetários redondos saíam como inteiros (`100`) e outros como decimais (`99.9`). | Serialização sempre decimal (`100.0`) para tipo consistente nos clientes. |
 | Fuso horário ignorado no Laravel 12 (datas em UTC). | `config/app.php` com `America/Bahia`. |
 | Filtro `status` da listagem de reservas aceitava qualquer valor. | Validado contra o enum `ReserveStatus`. |
+| **Rodar os testes dentro do container apagava o banco MySQL de desenvolvimento**: as variáveis do Docker (`DB_CONNECTION=mysql`) tinham prioridade sobre o `phpunit.xml`, e o `RefreshDatabase` recriava as tabelas reais. | `phpunit.xml` força SQLite em memória (`<env>` e `<server>` com `force="true"`) e o `TestCase` aborta se o banco não for o de teste. |
+
+Validação final: o repositório foi clonado em uma pasta vazia (sem `vendor`, `.env` ou banco) e `docker compose up`
+subiu tudo sozinho — dependências, chave, migrations, importação dos XMLs — com todos os endpoints respondendo e os
+90 testes passando dentro do container sem alterar o banco MySQL.
