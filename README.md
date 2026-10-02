@@ -14,6 +14,7 @@ API REST em **Laravel 12 (PHP 8.2+)** para gestão hoteleira:
 
 ### ⭐ Além do que foi pedido
 
+
 | Diferencial | Por que importa |
 |---|---|
 | **Busca de disponibilidade** (`GET /availability`) | O hóspede informa datas e nº de pessoas e recebe só os quartos livres, com o **preço final já calculado**, do mais barato ao mais caro — é a tela principal de qualquer motor de reservas. |
@@ -26,7 +27,9 @@ API REST em **Laravel 12 (PHP 8.2+)** para gestão hoteleira:
 | **Localizador + "Minha reserva"** | Cada reserva recebe um código não sequencial (ex.: `FH7K3Q9X`); o hóspede consulta a reserva com o código e o sobrenome, sem precisar de conta. |
 | **E-mail de confirmação** | Enviado ao hóspede com localizador, datas, diárias e valores — só depois que a reserva é gravada, e uma falha no envio nunca desfaz a reserva. |
 | **Proteção do inventário** | O hoteleiro não consegue reduzir as unidades de um quarto abaixo das reservas futuras já vendidas (evita overbooking por edição). |
-| **100 testes automatizados** | Cobrem importação, regras de preço, permissões, concorrência de cupom, idempotência, relatórios e a experiência do hóspede. |
+| **Desempenho no Docker** | `vendor/` em volume próprio + OPcache: respostas de ~5 s caíram para ~0,1 s no Docker Desktop (Windows/macOS). |
+| **Documentação interativa guiada** (`/docs`) | Guia "como testar em 3 passos", **login com um clique** por perfil (o token é aplicado sozinho), roteiro com atalhos para as rotas principais e exemplos prontos para executar, com datas sempre válidas. |
+| **103 testes automatizados** | Cobrem importação, regras de preço, permissões, concorrência de cupom, idempotência, relatórios e a experiência do hóspede. |
 
 ---
 
@@ -86,7 +89,7 @@ Acompanhe com `docker compose logs -f app`. Quando terminar:
 | Recurso                  | URL                                   |
 |--------------------------|---------------------------------------|
 | API                      | http://localhost:8080/api/v1          |
-| Swagger UI               | http://localhost:8080/docs/           |
+| **Documentação interativa (Swagger)** | **http://localhost:8080/docs/** — entre com um clique e teste qualquer rota |
 | Especificação OpenAPI    | http://localhost:8080/docs/openapi.yaml |
 | Health check             | http://localhost:8080/up              |
 | MySQL (host)             | `localhost:3307` (foco / secret)      |
@@ -665,6 +668,8 @@ Antes da entrega o projeto passou por uma revisão; os problemas encontrados e a
 | Fuso horário ignorado no Laravel 12 (datas em UTC). | `config/app.php` com `America/Bahia`. |
 | Filtro `status` da listagem de reservas aceitava qualquer valor. | Validado contra o enum `ReserveStatus`. |
 | **Limite de requisições compartilhado entre rotas**: com `throttle:N,1` o Laravel usa um único contador por IP; um hóspede navegando pelo site (busca, cotação, reserva) era bloqueado (429) no login e na consulta da reserva. Encontrado executando o fluxo completo. | Limitadores nomeados e independentes por grupo (`login`, `lookup`, `booking`, `public`, `staff`); login também limitado por e-mail (5/min) contra força bruta. Teste de regressão reproduz o cenário. |
+| **API lenta no Docker Desktop (1,5 a 5 s por requisição)**: ler a `vendor/` pela pasta compartilhada com o Windows é muito lento. | `vendor/` em volume do Docker, OPcache e cache de caminhos configurados: ~0,04 a 0,1 s. |
+| **Scheduler podia iniciar antes das dependências** e cair, se o sinal de "pronto" de uma execução anterior ainda existisse. | O app apaga o sinal ao iniciar, o scheduler espera o sinal **e** a `vendor/`, e todos os serviços têm `restart: unless-stopped`. |
 | **Erros 500 aleatórios no Docker**: o scheduler rodava como root e criava pastas do cache em disco sem permissão de escrita para o PHP-FPM (`www-data`); requisições cujas chaves caíam nessas pastas falhavam. Encontrado executando o projeto. | Cache no MySQL (`CACHE_STORE=database`, compartilhado entre containers), scheduler como `www-data` e logs criados com permissão compartilhada no Docker (`LOG_FILE_PERMISSION`). |
 | **Relatório contava quartos criados depois do período**: um quarto cadastrado hoje inflava a disponibilidade de meses passados e derrubava a ocupação histórica. | O quarto só conta no período em que existia (ou se teve diárias vendidas nele, caso dos quartos do XML, sem data de criação). |
 | **Rodar os testes dentro do container apagava o banco MySQL de desenvolvimento**: as variáveis do Docker (`DB_CONNECTION=mysql`) tinham prioridade sobre o `phpunit.xml`, e o `RefreshDatabase` recriava as tabelas reais. | `phpunit.xml` força SQLite em memória (`<env>` e `<server>` com `force="true"`) e o `TestCase` aborta se o banco não for o de teste. |
