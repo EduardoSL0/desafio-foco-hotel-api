@@ -16,12 +16,15 @@ services:
       context: .
       dockerfile: docker/php/Dockerfile
     container_name: foco-app
+    restart: unless-stopped
     environment:
       <<: *app-env
       CONTAINER_ROLE: app
       SEED_ON_START: "true"
     volumes:
       - ./:/var/www/html
+      # vendor/ em volume do Docker (fora da pasta compartilhada): muito mais rápido no Docker Desktop.
+      - vendor:/var/www/html/vendor
     depends_on:
       mysql:
         condition: service_healthy
@@ -32,6 +35,7 @@ services:
       context: .
       dockerfile: docker/php/Dockerfile
     container_name: foco-scheduler
+    restart: unless-stopped
     # Mesmo usuário do PHP-FPM: arquivos criados pelo cron continuam graváveis pela API.
     user: www-data
     environment:
@@ -40,12 +44,15 @@ services:
     command: ["php", "artisan", "schedule:work"]
     volumes:
       - ./:/var/www/html
+      # vendor/ em volume do Docker (fora da pasta compartilhada): muito mais rápido no Docker Desktop.
+      - vendor:/var/www/html/vendor
     depends_on:
       - app
 
   nginx:
     image: nginx:1.27-alpine
     container_name: foco-nginx
+    restart: unless-stopped
     ports:
       - "8080:80"
     volumes:
@@ -57,6 +64,7 @@ services:
   mysql:
     image: mysql:8.0
     container_name: foco-mysql
+    restart: unless-stopped
     environment:
       MYSQL_DATABASE: foco_hotel
       MYSQL_USER: foco
@@ -74,3 +82,4 @@ services:
 
 volumes:
   mysql-data:
+  vendor:

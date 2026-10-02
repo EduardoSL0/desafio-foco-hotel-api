@@ -4,11 +4,15 @@ set -e
 cd /var/www/html
 
 if [ "${CONTAINER_ROLE:-app}" = "app" ]; then
+    # Sinal de "pronto" de uma execução anterior não vale: os auxiliares esperam este boot terminar.
+    rm -f storage/.ready
+
     if [ ! -f .env ]; then
         cp .env.example .env
     fi
 
-    if [ ! -f vendor/autoload.php ]; then
+    # Instala/atualiza dependências quando o volume vendor está vazio ou o composer.lock mudou.
+    if [ ! -f vendor/autoload.php ] || [ composer.lock -nt vendor/composer/installed.json ]; then
         composer install --no-interaction --prefer-dist
     fi
 
@@ -26,7 +30,7 @@ if [ "${CONTAINER_ROLE:-app}" = "app" ]; then
     touch storage/.ready
 else
     # Containers auxiliares (scheduler) aguardam o container "app" preparar o projeto.
-    until [ -f storage/.ready ]; do
+    until [ -f storage/.ready ] && [ -f vendor/autoload.php ]; do
         echo "Aguardando o container app ficar pronto..."
         sleep 3
     done
