@@ -8,7 +8,7 @@ class WebTest extends TestCase
 {
     public function test_home_redirects_to_interactive_documentation(): void
     {
-        $this->get('/')->assertRedirect('/docs/');
+        $this->get('/')->assertRedirect('/docs/index.html');
     }
 
     public function test_api_index_lists_entry_points(): void
