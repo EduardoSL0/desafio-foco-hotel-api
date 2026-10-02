@@ -1,0 +1,167 @@
+<?php
+
+namespace App\Services;
+
+use App\Enums\ReserveStatus;
+use App\Exceptions\ReserveCancelledException;
+use App\Exceptions\RoomUnavailableException;
+use App\Models\Coupon;
+use App\Models\Guest;
+use App\Models\Reserve;
+use App\Models\Room;
+use App\Services\Pricing\PriceBreakdown;
+use App\Services\Pricing\PriceCalculator;
+use App\Support\Money;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
+
+final class ReserveService
+{
+    public function __construct(
+        private readonly PriceCalculator $calculator,
+        private readonly AvailabilityService $availability,
+        private readonly PaymentService $payments,
+    ) {}
+
+    /** Cotação da estadia sem persistir nada. */
+    public function quote(array $data): array
+    {
+        $room = Room::with('hotel')->findOrFail($data['room_id']);
+        [$checkIn, $checkOut] = $this->period($data);
+
+        $breakdown = $this->calculator->quote(
+            $room,
+            $checkIn,
+            $checkOut,
+            $this->resolveCoupon($data['coupon_code'] ?? null, $room),
+        );
+
+        return [
+            ...$breakdown->toArray(),
+            'available_units' => $this->availability->availableUnits($room, $checkIn, $checkOut),
+        ];
+    }
+
+    public function create(array $data): Reserve
+    {
+        return DB::transaction(function () use ($data) {
+            // Lock no quarto serializa reservas concorrentes do mesmo quarto (evita overbooking).
+            $room = Room::query()->with('hotel')->lockForUpdate()->findOrFail($data['room_id']);
+            [$checkIn, $checkOut] = $this->period($data);
+
+            if (count($data['guests']) > $room->capacity) {
+                throw ValidationException::withMessages([
+                    'guests' => "O quarto comporta no máximo {$room->capacity} hóspede(s).",
+                ]);
+            }
+
+            if (! $this->availability->isAvailable($room, $checkIn, $checkOut)) {
+                throw new RoomUnavailableException;
+            }
+
+            $coupon = $this->resolveCoupon($data['coupon_code'] ?? null, $room);
+            $breakdown = $this->calculator->quote($room, $checkIn, $checkOut, $coupon);
+
+            $reserve = $this->persist($room, $breakdown, $coupon);
+            $reserve->guests()->sync($this->resolveGuests($data['guests']));
+
+            $coupon?->increment('used_count');
+
+            foreach (array_values($data['payments'] ?? []) as $i => $payment) {
+                $this->payments->register($reserve, $payment, "payments.{$i}.");
+            }
+
+            Log::info('reserve.created', [
+                'reserve_id' => $reserve->id,
+                'room_id' => $room->id,
+                'check_in' => $checkIn->toDateString(),
+                'check_out' => $checkOut->toDateString(),
+                'total' => $reserve->total,
+            ]);
+
+            return $reserve->fresh(['hotel', 'room', 'coupon', 'guests', 'dailies', 'payments']);
+        });
+    }
+
+    public function cancel(Reserve $reserve): Reserve
+    {
+        if ($reserve->status === ReserveStatus::Cancelled) {
+            throw new ReserveCancelledException;
+        }
+
+        $reserve->update(['status' => ReserveStatus::Cancelled]);
+
+        Log::info('reserve.cancelled', ['reserve_id' => $reserve->id]);
+
+        return $reserve;
+    }
+
+    private function persist(Room $room, PriceBreakdown $breakdown, ?Coupon $coupon): Reserve
+    {
+        $reserve = Reserve::create([
+            'hotel_id' => $room->hotel_id,
+            'room_id' => $room->id,
+            'coupon_id' => $coupon?->id,
+            'check_in' => $breakdown->checkIn,
+            'check_out' => $breakdown->checkOut,
+            'subtotal' => Money::fromCents($breakdown->subtotal()),
+            'discount' => Money::fromCents($breakdown->discount()),
+            'fees' => Money::fromCents($breakdown->fees()),
+            'total' => Money::fromCents($breakdown->total()),
+            'status' => ReserveStatus::Pending,
+            'source' => 'api',
+        ]);
+
+        foreach ($breakdown->nights() as $date => $night) {
+            $reserve->dailies()->create([
+                'date' => $date,
+                'value' => Money::fromCents($night['value']),
+                'discount' => Money::fromCents($night['discount']),
+            ]);
+        }
+
+        // Reserva com total zero (ex.: cupom de 100%) já nasce quitada.
+        $reserve->refreshStatus();
+
+        return $reserve;
+    }
+
+    /** @return list<int> */
+    private function resolveGuests(array $guests): array
+    {
+        return collect($guests)
+            ->map(fn (array $g) => Guest::firstOrCreate(
+                ['name' => trim($g['name']), 'last_name' => trim($g['last_name']), 'phone' => $g['phone']],
+                ['email' => $g['email'] ?? null],
+            )->id)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function resolveCoupon(?string $code, Room $room): ?Coupon
+    {
+        if ($code === null || $code === '') {
+            return null;
+        }
+
+        $coupon = Coupon::query()->where('code', strtoupper($code))->first();
+
+        if (! $coupon || ! $coupon->isValidFor($room->hotel_id)) {
+            throw ValidationException::withMessages(['coupon_code' => 'Cupom inválido, expirado ou não aplicável a este hotel.']);
+        }
+
+        return $coupon;
+    }
+
+    /** @return array{0: CarbonImmutable, 1: CarbonImmutable} */
+    private function period(array $data): array
+    {
+        return [
+            CarbonImmutable::parse($data['check_in'])->startOfDay(),
+            CarbonImmutable::parse($data['check_out'])->startOfDay(),
+        ];
+    }
+}
