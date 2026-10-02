@@ -275,6 +275,39 @@ paths:
                       available_units: { type: integer, example: 7 }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /reserves/lookup:
+    post:
+      operationId: postReservesLookup
+      tags: [Reservas]
+      summary: Minha reserva (consulta pelo hóspede)
+      description: |
+        O hóspede consulta a própria reserva com o **localizador** (enviado na criação e no e-mail de
+        confirmação) e o **sobrenome** de um dos hóspedes. Os dados vão no corpo, não na URL, para não
+        ficarem em logs de servidores. Código inexistente e sobrenome errado retornam o mesmo 404.
+        Limite de 10 tentativas por minuto.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, last_name]
+              properties:
+                code: { type: string, minLength: 8, maxLength: 8, example: FH7K3Q9X }
+                last_name: { type: string, example: Souza }
+      responses:
+        "200":
+          description: Reserva encontrada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Reserve" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
   /reserves/quote:
     post:
       operationId: postReservesQuote
@@ -334,7 +367,9 @@ paths:
         1. valida período, hóspedes e capacidade do quarto;
         2. verifica disponibilidade considerando o inventário do quarto (409 se esgotado);
         3. calcula diárias aplicando **promoções → cupom → taxa de serviço**;
-        4. registra hóspedes, diárias e pagamentos iniciais (opcionais) em uma única transação.
+        4. registra hóspedes, diárias e pagamentos iniciais em uma única transação
+           (pagamentos junto com a reserva apenas pela equipe autenticada do hotel);
+        5. gera o localizador (`code`) e envia e-mail de confirmação ao hóspede, se houver e-mail.
       requestBody:
         required: true
         content:
@@ -1003,6 +1038,7 @@ components:
       type: object
       properties:
         id: { type: integer }
+        code: { type: string, example: FH7K3Q9X, description: Localizador informado ao hóspede }
         external_code: { type: string, nullable: true }
         status: { $ref: '#/components/schemas/ReserveStatus' }
         source: { type: string, enum: [api, xml] }

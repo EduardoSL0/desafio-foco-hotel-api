@@ -23,7 +23,10 @@ API REST em **Laravel 12 (PHP 8.2+)** para gestão hoteleira:
 | **Request-ID** (`X-Request-Id`) | Cada resposta traz um ID que aparece em todos os logs da requisição — rastreio ponta a ponta de um erro reportado. |
 | **CI no GitHub Actions** | A cada push: testes em PHP 8.2 e 8.3, padrão de código (Pint) e validação da especificação OpenAPI. |
 | **Importação idempotente e transacional** | O cron pode rodar quantas vezes quiser; arquivo ausente ou XML inválido não altera nada no banco. |
-| **90 testes automatizados** | Cobrem importação, regras de preço, permissões, concorrência de cupom, idempotência e relatórios. |
+| **Localizador + "Minha reserva"** | Cada reserva recebe um código não sequencial (ex.: `FH7K3Q9X`); o hóspede consulta a reserva com o código e o sobrenome, sem precisar de conta. |
+| **E-mail de confirmação** | Enviado ao hóspede com localizador, datas, diárias e valores — só depois que a reserva é gravada, e uma falha no envio nunca desfaz a reserva. |
+| **Proteção do inventário** | O hoteleiro não consegue reduzir as unidades de um quarto abaixo das reservas futuras já vendidas (evita overbooking por edição). |
+| **97 testes automatizados** | Cobrem importação, regras de preço, permissões, concorrência de cupom, idempotência, relatórios e a experiência do hóspede. |
 
 ---
 
@@ -42,6 +45,7 @@ API REST em **Laravel 12 (PHP 8.2+)** para gestão hoteleira:
 11. [Logs](#11-logs)
 12. [Segurança](#12-segurança)
 13. [Padrão de Git](#13-padrão-de-git)
+    - [Colocando em produção](#colocando-em-produção)
 14. [Decisões e inconsistências encontradas nos XMLs](#14-decisões-e-inconsistências-encontradas-nos-xmls)
 15. [Revisão de código](#15-revisão-de-código)
 
@@ -362,7 +366,8 @@ Base: `http://localhost:8080/api/v1` — documentação interativa em **http://l
 | PUT/PATCH   | `/rooms/{id}`                      | 🔒   | Atualiza quarto                         |
 | DELETE      | `/rooms/{id}`                      | 🔒   | Remove quarto (soft delete)             |
 | POST        | `/reserves/quote`                  |      | Cotação sem criar reserva               |
-| POST        | `/reserves`                        |      | **Cria reserva**                        |
+| POST        | `/reserves`                        |      | **Cria reserva** (retorna o localizador `code`) |
+| POST        | `/reserves/lookup`                 |      | ⭐ **Minha reserva**: consulta por localizador + sobrenome |
 | GET         | `/reserves` · `/reserves/{id}`     | 🔒   | Consulta reservas                       |
 | PATCH       | `/reserves/{id}/cancel`            | 🔒   | Cancela reserva                         |
 | GET / POST  | `/reserves/{id}/payments`          | 🔒   | Lista / registra pagamentos             |
@@ -552,6 +557,7 @@ Os testes usam SQLite em memória (`phpunit.xml`) e cobrem:
 | `tests/Feature/PromotionApiTest.php`      | CRUD de promoções, efeito na cotação, quarto do mesmo hotel, permissões |
 | `tests/Feature/AvailabilitySearchApiTest.php` | busca: filtros de capacidade/tarifa/lotação, ordenação por preço, cupom |
 | `tests/Feature/HotelReportApiTest.php`    | ocupação, ADR e RevPAR conferidos com os dados reais do XML       |
+| `tests/Feature/GuestExperienceTest.php`   | localizador, consulta "minha reserva" (sem revelar códigos, com limite de tentativas), e-mail de confirmação, proteção do inventário |
 | `tests/Unit/*`                            | cálculo de preço e regras de cupom                                |
 
 O mesmo conjunto roda no **GitHub Actions** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) em PHP 8.2 e 8.3,
@@ -592,6 +598,32 @@ grep "c0a8f1e2-..." storage/logs/*.log
 - Leitura de XML com `LIBXML_NONET` (sem acesso a recursos externos — proteção contra XXE).
 - Consultas via Eloquent/Query Builder (parâmetros *bound*, sem SQL injection).
 - Respostas de erro padronizadas em JSON, sem *stack trace* com `APP_DEBUG=false`.
+
+---
+
+## Colocando em produção
+
+O `docker-compose.yml` é pensado para **avaliação e desenvolvimento**. Para a empresa colocar no ar:
+
+| Item | Desenvolvimento (padrão) | Produção |
+|---|---|---|
+| `APP_ENV` / `APP_DEBUG` | `local` / `true` | `production` / `false` (sem *stack trace* nas respostas) |
+| `SEED_ON_START` (compose) | `true` — cria usuários de teste com senha `password` | `false`; criar o primeiro admin manualmente (abaixo) |
+| Banco | MySQL do compose, senha `secret`, porta 3307 exposta | Banco gerenciado, senha forte, porta **não** exposta |
+| E-mail | `MAIL_MAILER=log` (grava em `storage/logs`) | `smtp`/`ses`/`postmark` com as credenciais do provedor |
+| Cache / locks | `file` | `redis` (necessário com mais de um servidor: *rate limit*, idempotência e *lock* do cron) |
+| HTTPS | não | obrigatório (terminar TLS no balanceador ou no Nginx) |
+| Performance | — | `php artisan config:cache route:cache` no deploy |
+
+Criar o primeiro administrador em produção:
+
+```bash
+php artisan tinker --execute="AppModelsUser::create([name=>Admin,email=>admin@hotel.com.br,password=>TROQUE-ESTA-SENHA,role=>admin]);"
+```
+
+Dados pessoais (LGPD): a API armazena nome, sobrenome, telefone e e-mail dos hóspedes apenas para a reserva;
+esses dados só são expostos à equipe autenticada do hotel ou ao próprio hóspede (localizador + sobrenome) e
+não são gravados nos logs.
 
 ---
 
@@ -636,4 +668,4 @@ Antes da entrega o projeto passou por uma revisão; os problemas encontrados e a
 
 Validação final: o repositório foi clonado em uma pasta vazia (sem `vendor`, `.env` ou banco) e `docker compose up`
 subiu tudo sozinho — dependências, chave, migrations, importação dos XMLs — com todos os endpoints respondendo e os
-90 testes passando dentro do container sem alterar o banco MySQL.
+testes passando dentro do container sem alterar o banco MySQL.
