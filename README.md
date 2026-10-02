@@ -611,7 +611,7 @@ O `docker-compose.yml` é pensado para **avaliação e desenvolvimento**. Para a
 | `SEED_ON_START` (compose) | `true` — cria usuários de teste com senha `password` | `false`; criar o primeiro admin manualmente (abaixo) |
 | Banco | MySQL do compose, senha `secret`, porta 3307 exposta | Banco gerenciado, senha forte, porta **não** exposta |
 | E-mail | `MAIL_MAILER=log` (grava em `storage/logs`) | `smtp`/`ses`/`postmark` com as credenciais do provedor |
-| Cache / locks | `file` | `redis` (necessário com mais de um servidor: *rate limit*, idempotência e *lock* do cron) |
+| Cache / locks | `database` (compartilhado entre os containers) | `redis` para alto volume (*rate limit*, idempotência e *lock* do cron) |
 | HTTPS | não | obrigatório (terminar TLS no balanceador ou no Nginx) |
 | Performance | — | `php artisan config:cache route:cache` no deploy |
 
@@ -665,6 +665,7 @@ Antes da entrega o projeto passou por uma revisão; os problemas encontrados e a
 | Fuso horário ignorado no Laravel 12 (datas em UTC). | `config/app.php` com `America/Bahia`. |
 | Filtro `status` da listagem de reservas aceitava qualquer valor. | Validado contra o enum `ReserveStatus`. |
 | **Limite de requisições compartilhado entre rotas**: com `throttle:N,1` o Laravel usa um único contador por IP; um hóspede navegando pelo site (busca, cotação, reserva) era bloqueado (429) no login e na consulta da reserva. Encontrado executando o fluxo completo. | Limitadores nomeados e independentes por grupo (`login`, `lookup`, `booking`, `public`, `staff`); login também limitado por e-mail (5/min) contra força bruta. Teste de regressão reproduz o cenário. |
+| **Erros 500 aleatórios no Docker**: o scheduler rodava como root e criava pastas do cache em disco sem permissão de escrita para o PHP-FPM (`www-data`); requisições cujas chaves caíam nessas pastas falhavam. Encontrado executando o projeto. | Cache no MySQL (`CACHE_STORE=database`, compartilhado entre containers), scheduler como `www-data` e logs criados com permissão compartilhada no Docker (`LOG_FILE_PERMISSION`). |
 | **Relatório contava quartos criados depois do período**: um quarto cadastrado hoje inflava a disponibilidade de meses passados e derrubava a ocupação histórica. | O quarto só conta no período em que existia (ou se teve diárias vendidas nele, caso dos quartos do XML, sem data de criação). |
 | **Rodar os testes dentro do container apagava o banco MySQL de desenvolvimento**: as variáveis do Docker (`DB_CONNECTION=mysql`) tinham prioridade sobre o `phpunit.xml`, e o `RefreshDatabase` recriava as tabelas reais. | `phpunit.xml` força SQLite em memória (`<env>` e `<server>` com `force="true"`) e o `TestCase` aborta se o banco não for o de teste. |
 
