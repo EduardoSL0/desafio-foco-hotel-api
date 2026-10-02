@@ -255,8 +255,8 @@ paths:
       summary: Unidades disponíveis do quarto no período
       parameters:
         - { $ref: '#/components/parameters/RoomId' }
-        - { name: check_in, in: query, required: true, schema: { type: string, format: date } }
-        - { name: check_out, in: query, required: true, schema: { type: string, format: date } }
+        - { name: check_in, in: query, required: true, schema: { type: string, format: date }, example: "2027-03-10" }
+        - { name: check_out, in: query, required: true, schema: { type: string, format: date }, example: "2027-03-13" }
       responses:
         '200':
           description: OK
@@ -375,6 +375,13 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/ReserveInput' }
+            example:
+              room_id: 1
+              check_in: "2027-03-10"
+              check_out: "2027-03-13"
+              coupon_code: BEMVINDO10
+              guests:
+                - { name: Maria, last_name: Souza, phone: "5571999990000", email: maria@example.com }
       responses:
         '201':
           description: Reserva criada
@@ -535,11 +542,11 @@ paths:
         possuem tarifa, com o total já calculado (promoções, cupom e taxas), ordenados pelo menor preço.
         Um cupom inválido para um hotel é ignorado naquele resultado.
       parameters:
-        - { name: check_in, in: query, required: true, schema: { type: string, format: date } }
-        - { name: check_out, in: query, required: true, schema: { type: string, format: date } }
-        - { name: guests, in: query, schema: { type: integer, default: 1 } }
+        - { name: check_in, in: query, required: true, schema: { type: string, format: date }, example: "2027-03-10" }
+        - { name: check_out, in: query, required: true, schema: { type: string, format: date }, example: "2027-03-13" }
+        - { name: guests, in: query, schema: { type: integer, default: 1 }, example: 2 }
         - { name: hotel_id, in: query, schema: { type: integer } }
-        - { name: coupon_code, in: query, schema: { type: string } }
+        - { name: coupon_code, in: query, schema: { type: string }, example: BEMVINDO10 }
       responses:
         "200":
           description: Resultados da busca
@@ -573,8 +580,8 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters:
         - { $ref: "#/components/parameters/HotelId" }
-        - { name: from, in: query, schema: { type: string, format: date } }
-        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: from, in: query, schema: { type: string, format: date }, example: "2022-12-01", description: "Padrão: início do mês atual. Dez/2022 tem os dados do XML." }
+        - { name: to, in: query, schema: { type: string, format: date }, example: "2022-12-31", description: "Padrão: fim do mês atual." }
       responses:
         "200":
           description: Relatório
@@ -753,9 +760,9 @@ components:
       scheme: bearer
 
   parameters:
-    HotelId: { name: hotel, in: path, required: true, schema: { type: integer } }
-    RoomId: { name: room, in: path, required: true, schema: { type: integer } }
-    ReserveId: { name: reserve, in: path, required: true, schema: { type: integer } }
+    HotelId: { name: hotel, in: path, required: true, schema: { type: integer }, example: 1 }
+    RoomId: { name: room, in: path, required: true, schema: { type: integer }, example: 1 }
+    ReserveId: { name: reserve, in: path, required: true, schema: { type: integer }, example: 1 }
 
   responses:
     Unauthorized:
@@ -815,8 +822,8 @@ components:
         room_id: { type: integer, nullable: true }
         name: { type: string, example: Feriado }
         discount_percent: { type: number, minimum: 0.01, maximum: 100, example: 20 }
-        starts_at: { type: string, format: date, example: "2030-12-20" }
-        ends_at: { type: string, format: date, example: "2030-12-31" }
+        starts_at: { type: string, format: date, example: "2027-03-20" }
+        ends_at: { type: string, format: date, example: "2027-03-31" }
         active: { type: boolean, default: true }
 
     UserInput:
@@ -980,8 +987,8 @@ components:
       required: [room_id, check_in, check_out]
       properties:
         room_id: { type: integer, example: 1 }
-        check_in: { type: string, format: date, example: '2030-12-01' }
-        check_out: { type: string, format: date, example: '2030-12-04' }
+        check_in: { type: string, format: date, example: '2027-03-10' }
+        check_out: { type: string, format: date, example: '2027-03-13' }
         coupon_code: { type: string, example: BEMVINDO10 }
 
     ReserveInput:
@@ -996,6 +1003,7 @@ components:
               items: { $ref: '#/components/schemas/GuestInput' }
             payments:
               type: array
+              description: Somente a equipe autenticada do hotel pode enviar pagamentos junto com a reserva.
               items: { $ref: '#/components/schemas/PaymentInput' }
 
     Quote:
