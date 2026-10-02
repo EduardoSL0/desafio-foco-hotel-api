@@ -3,11 +3,11 @@
 namespace App\Http\Resources;
 
 use App\Models\Daily;
+use App\Models\Reserve;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
 
-/** @mixin \App\Models\Reserve */
-class ReserveResource extends JsonResource
+/** @mixin Reserve */
+class ReserveResource extends ApiResource
 {
     public function toArray(Request $request): array
     {

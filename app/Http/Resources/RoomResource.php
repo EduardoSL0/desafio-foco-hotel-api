@@ -2,11 +2,11 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Room;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
 
-/** @mixin \App\Models\Room */
-class RoomResource extends JsonResource
+/** @mixin Room */
+class RoomResource extends ApiResource
 {
     public function toArray(Request $request): array
     {

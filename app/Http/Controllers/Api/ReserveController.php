@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\QuoteReserveRequest;
 use App\Http\Requests\StoreReserveRequest;
+use App\Http\Resources\ApiResource;
 use App\Http\Resources\ReserveResource;
 use App\Models\Reserve;
 use App\Services\ReserveService;
@@ -46,7 +47,7 @@ class ReserveController extends Controller
     /** Cotação: calcula diárias, descontos e taxas sem criar a reserva. */
     public function quote(QuoteReserveRequest $request): JsonResponse
     {
-        return response()->json(['data' => $this->service->quote($request->validated())]);
+        return response()->json(['data' => $this->service->quote($request->validated())], 200, [], ApiResource::JSON_OPTIONS);
     }
 
     public function store(StoreReserveRequest $request): JsonResponse
