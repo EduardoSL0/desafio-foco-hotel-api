@@ -1,0 +1,706 @@
+openapi: 3.0.0
+info:
+  title: Foco Hotel API
+  version: 1.0.0
+  description: |
+    API REST do desafio Foco Multimídia: gestão de quartos/acomodações e motor de reservas.
+
+    **Autenticação:** faça `POST /auth/login` e envie o token retornado no cabeçalho
+    `Authorization: Bearer <token>` nas rotas marcadas com o cadeado.
+
+    **Perfis:**
+    - `admin` — acesso total a todos os hotéis;
+    - `manager` — gerencia quartos, cupons e reservas do próprio hotel;
+    - `receptionist` — consulta reservas e registra pagamentos do próprio hotel.
+
+    Usuários de teste (após o seed): `admin@foco.test`, `gerente@foco.test`, `recepcao@foco.test` — senha `password`.
+servers:
+  - url: /api/v1
+    description: Servidor atual
+tags:
+  - name: Auth
+  - name: Hotéis
+  - name: Quartos
+  - name: Reservas
+  - name: Pagamentos
+  - name: Cupons
+
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Gera um token de acesso
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email, example: admin@foco.test }
+                password: { type: string, example: password }
+      responses:
+        '200':
+          description: Token gerado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token_type: { type: string, example: Bearer }
+                  access_token: { type: string, example: 1|abc123... }
+                  expires_in: { type: integer, example: 28800 }
+                  user: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Usuário autenticado
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoga o token atual
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Token revogado }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /hotels:
+    get:
+      tags: [Hotéis]
+      summary: Lista os hotéis
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Hotel' }
+
+  /hotels/{hotel}:
+    get:
+      tags: [Hotéis]
+      summary: Detalha um hotel
+      parameters: [{ $ref: '#/components/parameters/HotelId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Hotel' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms:
+    get:
+      tags: [Quartos]
+      summary: Lista quartos (paginado)
+      parameters:
+        - { name: hotel_id, in: query, schema: { type: integer }, description: Filtra por hotel }
+        - { name: search, in: query, schema: { type: string }, description: Busca por nome }
+        - { name: per_page, in: query, schema: { type: integer, default: 15, maximum: 100 } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Room' }
+                  links: { type: object }
+                  meta: { type: object }
+    post:
+      tags: [Quartos]
+      summary: Cadastra um quarto
+      description: Permitido para `admin` ou `manager` do hotel informado.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoomInput' }
+      responses:
+        '201':
+          description: Criado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Room' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /rooms/{room}:
+    parameters: [{ $ref: '#/components/parameters/RoomId' }]
+    get:
+      tags: [Quartos]
+      summary: Detalha um quarto
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Room' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Quartos]
+      summary: Atualiza um quarto (PUT/PATCH, campos parciais aceitos)
+      description: '`hotel_id` não pode ser alterado.'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoomUpdate' }
+      responses:
+        '200':
+          description: Atualizado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Room' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    patch:
+      tags: [Quartos]
+      summary: Atualiza parcialmente um quarto
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoomUpdate' }
+      responses:
+        '200': { description: Atualizado }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Quartos]
+      summary: Remove um quarto (soft delete)
+      description: Bloqueado (409) se houver reservas futuras ativas.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Removido }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{room}/availability:
+    get:
+      tags: [Quartos]
+      summary: Unidades disponíveis do quarto no período
+      parameters:
+        - { $ref: '#/components/parameters/RoomId' }
+        - { name: check_in, in: query, required: true, schema: { type: string, format: date } }
+        - { name: check_out, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      room_id: { type: integer }
+                      check_in: { type: string, format: date }
+                      check_out: { type: string, format: date }
+                      inventory: { type: integer, example: 10 }
+                      available_units: { type: integer, example: 7 }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /reserves/quote:
+    post:
+      tags: [Reservas]
+      summary: Cotação da estadia (não cria reserva)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuoteInput' }
+      responses:
+        '200':
+          description: Cotação
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Quote' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /reserves:
+    get:
+      tags: [Reservas]
+      summary: Lista reservas (admin vê todas; demais, apenas do próprio hotel)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: hotel_id, in: query, schema: { type: integer } }
+        - { name: room_id, in: query, schema: { type: integer } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ReserveStatus' } }
+        - { name: per_page, in: query, schema: { type: integer, default: 15 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Reserve' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Reservas]
+      summary: Cria uma reserva
+      description: |
+        Rota pública (motor de reservas). Fluxo:
+        1. valida período, hóspedes e capacidade do quarto;
+        2. verifica disponibilidade considerando o inventário do quarto (409 se esgotado);
+        3. calcula diárias aplicando **promoções → cupom → taxa de serviço**;
+        4. registra hóspedes, diárias e pagamentos iniciais (opcionais) em uma única transação.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReserveInput' }
+      responses:
+        '201':
+          description: Reserva criada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Reserve' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /reserves/{reserve}:
+    get:
+      tags: [Reservas]
+      summary: Detalha uma reserva
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ReserveId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Reserve' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /reserves/{reserve}/cancel:
+    patch:
+      tags: [Reservas]
+      summary: Cancela uma reserva (admin/manager)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ReserveId' }]
+      responses:
+        '200': { description: Reserva cancelada }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /reserves/{reserve}/payments:
+    parameters: [{ $ref: '#/components/parameters/ReserveId' }]
+    get:
+      tags: [Pagamentos]
+      summary: Lista pagamentos da reserva
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Payment' }
+    post:
+      tags: [Pagamentos]
+      summary: Registra um pagamento
+      description: |
+        Parcelamento apenas no cartão de crédito (method=1). Acima de 3 parcelas incide juros simples
+        de 1,99% por parcela excedente (configurável).
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymentInput' }
+      responses:
+        '201':
+          description: Pagamento registrado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Payment' }
+                  reserve:
+                    type: object
+                    properties:
+                      status: { $ref: '#/components/schemas/ReserveStatus' }
+                      balance: { type: number, example: 200.0 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /coupons:
+    get:
+      tags: [Cupons]
+      summary: Lista cupons
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Coupon' }
+    post:
+      tags: [Cupons]
+      summary: Cria um cupom (global apenas para admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CouponInput' }
+      responses:
+        '201':
+          description: Criado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Coupon' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /coupons/{coupon}:
+    delete:
+      tags: [Cupons]
+      summary: Remove um cupom
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: coupon, in: path, required: true, schema: { type: integer } }
+      responses:
+        '204': { description: Removido }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  parameters:
+    HotelId: { name: hotel, in: path, required: true, schema: { type: integer } }
+    RoomId: { name: room, in: path, required: true, schema: { type: integer } }
+    ReserveId: { name: reserve, in: path, required: true, schema: { type: integer } }
+
+  responses:
+    Unauthorized:
+      description: Não autenticado
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Message' }
+    Forbidden:
+      description: Sem permissão
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Message' }
+    NotFound:
+      description: Recurso não encontrado
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Message' }
+    Conflict:
+      description: Conflito de regra de negócio (ex.: sem disponibilidade)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Message' }
+    TooManyRequests:
+      description: Limite de requisições excedido
+    ValidationError:
+      description: Erro de validação
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string }
+              errors:
+                type: object
+                additionalProperties:
+                  type: array
+                  items: { type: string }
+
+  schemas:
+    Message:
+      type: object
+      properties:
+        message: { type: string }
+
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string }
+        role: { type: string, enum: [admin, manager, receptionist] }
+        hotel_id: { type: integer, nullable: true }
+
+    Hotel:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        external_code: { type: string, nullable: true, example: '1' }
+        name: { type: string, example: Hotel Foco Prime }
+        service_fee_percent: { type: number, example: 0 }
+        rooms_count: { type: integer, example: 2 }
+
+    Room:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        hotel_id: { type: integer, example: 1 }
+        hotel: { $ref: '#/components/schemas/Hotel' }
+        external_code: { type: string, nullable: true }
+        name: { type: string, example: Room 1 Hotel 1 }
+        description: { type: string, nullable: true }
+        capacity: { type: integer, example: 2 }
+        inventory: { type: integer, example: 10, description: Unidades disponíveis desta acomodação }
+        daily_price: { type: number, nullable: true, example: 100.0 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    RoomInput:
+      type: object
+      required: [hotel_id, name]
+      properties:
+        hotel_id: { type: integer, example: 1 }
+        name: { type: string, maxLength: 120, example: Standard Casal }
+        description: { type: string, example: Cama de casal, ar-condicionado e varanda }
+        capacity: { type: integer, minimum: 1, maximum: 20, default: 2 }
+        inventory: { type: integer, minimum: 1, maximum: 1000, default: 1, example: 10 }
+        daily_price: { type: number, minimum: 0, example: 189.9 }
+
+    RoomUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string, nullable: true }
+        capacity: { type: integer }
+        inventory: { type: integer }
+        daily_price: { type: number, nullable: true }
+
+    GuestInput:
+      type: object
+      required: [name, last_name, phone]
+      properties:
+        name: { type: string, example: Maria }
+        last_name: { type: string, example: Souza }
+        phone: { type: string, pattern: '^\+?\d{10,15}$', example: '5571999990000' }
+        email: { type: string, format: email, nullable: true }
+
+    PaymentInput:
+      type: object
+      required: [method, value]
+      properties:
+        method:
+          type: integer
+          enum: [1, 2, 3, 4, 5]
+          description: 1 crédito, 2 débito, 3 pix, 4 dinheiro, 5 boleto
+          example: 1
+        value: { type: number, example: 100.0 }
+        installments: { type: integer, minimum: 1, maximum: 12, default: 1 }
+
+    QuoteInput:
+      type: object
+      required: [room_id, check_in, check_out]
+      properties:
+        room_id: { type: integer, example: 1 }
+        check_in: { type: string, format: date, example: '2030-12-01' }
+        check_out: { type: string, format: date, example: '2030-12-04' }
+        coupon_code: { type: string, example: BEMVINDO10 }
+
+    ReserveInput:
+      allOf:
+        - $ref: '#/components/schemas/QuoteInput'
+        - type: object
+          required: [guests]
+          properties:
+            guests:
+              type: array
+              minItems: 1
+              items: { $ref: '#/components/schemas/GuestInput' }
+            payments:
+              type: array
+              items: { $ref: '#/components/schemas/PaymentInput' }
+
+    Quote:
+      type: object
+      properties:
+        room_id: { type: integer }
+        check_in: { type: string, format: date }
+        check_out: { type: string, format: date }
+        nights: { type: integer, example: 3 }
+        coupon_code: { type: string, nullable: true }
+        dailies:
+          type: array
+          items: { $ref: '#/components/schemas/Daily' }
+        adjustments:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string, enum: [discount, fee] }
+              label: { type: string, example: 'Cupom: BEMVINDO10' }
+              amount: { type: number, example: 30.0 }
+        subtotal: { type: number, example: 300.0 }
+        discount: { type: number, example: 30.0 }
+        fees: { type: number, example: 0 }
+        total: { type: number, example: 270.0 }
+        available_units: { type: integer, example: 1 }
+
+    Daily:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        value: { type: number, example: 100.0 }
+        discount: { type: number, example: 0 }
+
+    ReserveStatus:
+      type: string
+      enum: [pending, partially_paid, paid, cancelled]
+
+    Reserve:
+      type: object
+      properties:
+        id: { type: integer }
+        external_code: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/ReserveStatus' }
+        source: { type: string, enum: [api, xml] }
+        hotel: { $ref: '#/components/schemas/Hotel' }
+        room: { $ref: '#/components/schemas/Room' }
+        coupon_code: { type: string, nullable: true }
+        check_in: { type: string, format: date }
+        check_out: { type: string, format: date }
+        nights: { type: integer }
+        amounts:
+          type: object
+          properties:
+            subtotal: { type: number }
+            discount: { type: number }
+            fees: { type: number }
+            total: { type: number }
+            paid: { type: number }
+            balance: { type: number }
+        guests:
+          type: array
+          items:
+            allOf:
+              - type: object
+                properties:
+                  id: { type: integer }
+              - $ref: '#/components/schemas/GuestInput'
+        dailies:
+          type: array
+          items: { $ref: '#/components/schemas/Daily' }
+        payments:
+          type: array
+          items: { $ref: '#/components/schemas/Payment' }
+        created_at: { type: string, format: date-time }
+
+    Payment:
+      type: object
+      properties:
+        id: { type: integer }
+        reserve_id: { type: integer }
+        method: { type: integer, example: 1 }
+        method_label: { type: string, example: Cartão de crédito }
+        value: { type: number, example: 100.0 }
+        installments: { type: integer, example: 6 }
+        interest: { type: number, example: 5.97 }
+        source: { type: string, enum: [api, xml] }
+        paid_at: { type: string, format: date-time, nullable: true }
+
+    Coupon:
+      type: object
+      properties:
+        id: { type: integer }
+        hotel_id: { type: integer, nullable: true }
+        code: { type: string, example: BEMVINDO10 }
+        type: { type: string, enum: [percent, fixed] }
+        value: { type: number, example: 10 }
+        valid_from: { type: string, format: date, nullable: true }
+        valid_until: { type: string, format: date, nullable: true }
+        max_uses: { type: integer, nullable: true }
+        used_count: { type: integer }
+        active: { type: boolean }
+
+    CouponInput:
+      type: object
+      required: [code, type, value]
+      properties:
+        hotel_id: { type: integer, nullable: true, description: Nulo = cupom global (somente admin) }
+        code: { type: string, example: VERAO2030 }
+        type: { type: string, enum: [percent, fixed] }
+        value: { type: number, example: 15 }
+        valid_from: { type: string, format: date }
+        valid_until: { type: string, format: date }
+        max_uses: { type: integer }
+        active: { type: boolean, default: true }
