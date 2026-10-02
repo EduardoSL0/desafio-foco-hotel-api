@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\ReserveStatus;
 use App\Exceptions\ReserveCancelledException;
 use App\Exceptions\RoomUnavailableException;
+use App\Mail\ReserveConfirmation;
 use App\Models\Coupon;
 use App\Models\Guest;
 use App\Models\Reserve;
@@ -15,7 +16,9 @@ use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 final class ReserveService
 {
@@ -82,7 +85,12 @@ final class ReserveService
                 'total' => $reserve->total,
             ]);
 
-            return $reserve->fresh(['hotel', 'room', 'coupon', 'guests', 'dailies', 'payments']);
+            $reserve = $reserve->fresh(['hotel', 'room', 'coupon', 'guests', 'dailies', 'payments']);
+
+            // Envia só depois do commit: se a transação falhar, o hóspede não recebe confirmação falsa.
+            DB::afterCommit(fn () => $this->sendConfirmation($reserve));
+
+            return $reserve;
         });
     }
 
@@ -104,6 +112,23 @@ final class ReserveService
         Log::info('reserve.cancelled', ['reserve_id' => $reserve->id]);
 
         return $reserve;
+    }
+
+    /** Falha no envio de e-mail é registrada, mas nunca desfaz a reserva já confirmada. */
+    private function sendConfirmation(Reserve $reserve): void
+    {
+        $email = $reserve->guests->first(fn (Guest $g) => filled($g->email))?->email;
+
+        if ($email === null) {
+            return;
+        }
+
+        try {
+            Mail::to($email)->send(new ReserveConfirmation($reserve));
+            Log::info('reserve.confirmation_sent', ['reserve_id' => $reserve->id]);
+        } catch (Throwable $e) {
+            Log::error('reserve.confirmation_failed', ['reserve_id' => $reserve->id, 'error' => $e->getMessage()]);
+        }
     }
 
     private function persist(Room $room, PriceBreakdown $breakdown, ?Coupon $coupon): Reserve
