@@ -1,11 +1,16 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\AvailabilitySearchController;
 use App\Http\Controllers\Api\CouponController;
 use App\Http\Controllers\Api\HotelController;
+use App\Http\Controllers\Api\HotelReportController;
 use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\PromotionController;
 use App\Http\Controllers\Api\ReserveController;
 use App\Http\Controllers\Api\RoomController;
+use App\Http\Controllers\Api\UserController;
+use App\Http\Middleware\Idempotency;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -25,17 +30,21 @@ Route::middleware('throttle:120,1')->group(function () {
     Route::get('rooms', [RoomController::class, 'index'])->name('rooms.index');
     Route::get('rooms/{room}', [RoomController::class, 'show'])->name('rooms.show');
     Route::get('rooms/{room}/availability', [RoomController::class, 'availability'])->name('rooms.availability');
+
+    Route::get('availability', AvailabilitySearchController::class)->name('availability.search');
 });
 
 Route::middleware('throttle:30,1')->group(function () {
     Route::post('reserves/quote', [ReserveController::class, 'quote'])->name('reserves.quote');
-    Route::post('reserves', [ReserveController::class, 'store'])->name('reserves.store');
+    Route::post('reserves', [ReserveController::class, 'store'])->middleware(Idempotency::class)->name('reserves.store');
 });
 
 // Rotas autenticadas (gestão do hoteleiro) - Authorization: Bearer <token>
 Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
     Route::get('auth/me', [AuthController::class, 'me'])->name('auth.me');
     Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
+
+    Route::get('hotels/{hotel}/report', HotelReportController::class)->name('hotels.report');
 
     Route::post('rooms', [RoomController::class, 'store'])->name('rooms.store');
     Route::match(['put', 'patch'], 'rooms/{room}', [RoomController::class, 'update'])->name('rooms.update');
@@ -46,9 +55,12 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
     Route::patch('reserves/{reserve}/cancel', [ReserveController::class, 'cancel'])->name('reserves.cancel');
 
     Route::get('reserves/{reserve}/payments', [PaymentController::class, 'index'])->name('payments.index');
-    Route::post('reserves/{reserve}/payments', [PaymentController::class, 'store'])->name('payments.store');
+    Route::post('reserves/{reserve}/payments', [PaymentController::class, 'store'])->middleware(Idempotency::class)->name('payments.store');
 
     Route::get('coupons', [CouponController::class, 'index'])->name('coupons.index');
     Route::post('coupons', [CouponController::class, 'store'])->name('coupons.store');
     Route::delete('coupons/{coupon}', [CouponController::class, 'destroy'])->name('coupons.destroy');
+
+    Route::apiResource('promotions', PromotionController::class);
+    Route::apiResource('users', UserController::class);
 });

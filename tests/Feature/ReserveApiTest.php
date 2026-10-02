@@ -217,9 +217,35 @@ class ReserveApiTest extends TestCase
             ->assertJsonValidationErrors('room_id');
     }
 
+    public function test_public_request_cannot_send_payments_with_reserve(): void
+    {
+        $room = Room::factory()->create(['daily_price' => 100]);
+
+        $this->postJson(self::API.'/reserves', $this->payload($room, [
+            'payments' => [['method' => 3, 'value' => 300]],
+        ]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('payments');
+
+        $this->assertDatabaseCount('reserves', 0);
+    }
+
+    public function test_staff_from_another_hotel_cannot_send_payments_with_reserve(): void
+    {
+        $room = Room::factory()->create(['daily_price' => 100]);
+        Sanctum::actingAs(User::factory()->receptionist(Hotel::factory()->create())->create());
+
+        $this->postJson(self::API.'/reserves', $this->payload($room, [
+            'payments' => [['method' => 3, 'value' => 100]],
+        ]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('payments');
+    }
+
     public function test_creates_reserve_with_initial_payment(): void
     {
         $room = Room::factory()->create(['daily_price' => 100]);
+        Sanctum::actingAs(User::factory()->receptionist($room->hotel)->create());
 
         $this->postJson(self::API.'/reserves', $this->payload($room, [
             'payments' => [['method' => 3, 'value' => 100]],
@@ -234,6 +260,7 @@ class ReserveApiTest extends TestCase
     public function test_rolls_back_reserve_when_initial_payment_is_invalid(): void
     {
         $room = Room::factory()->create(['daily_price' => 100]);
+        Sanctum::actingAs(User::factory()->receptionist($room->hotel)->create());
 
         $this->postJson(self::API.'/reserves', $this->payload($room, [
             'payments' => [['method' => 1, 'value' => 500]],
@@ -280,6 +307,74 @@ class ReserveApiTest extends TestCase
         $this->patchJson(self::API."/reserves/{$reserve->id}/cancel")->assertStatus(409);
 
         $this->postJson(self::API.'/reserves', $this->payload($room))->assertCreated();
+    }
+
+    public function test_cancelling_releases_coupon_usage(): void
+    {
+        $room = Room::factory()->create(['inventory' => 2]);
+        $coupon = Coupon::factory()->create(['code' => 'UNICO', 'max_uses' => 1]);
+
+        $id = $this->postJson(self::API.'/reserves', $this->payload($room, ['coupon_code' => 'UNICO']))
+            ->assertCreated()
+            ->json('data.id');
+
+        // Cupom esgotado: segunda reserva é recusada.
+        $this->postJson(self::API.'/reserves', $this->payload($room, ['coupon_code' => 'UNICO']))
+            ->assertJsonValidationErrors('coupon_code');
+
+        Sanctum::actingAs(User::factory()->manager($room->hotel)->create());
+        $this->patchJson(self::API."/reserves/{$id}/cancel")->assertOk();
+
+        $this->assertSame(0, $coupon->fresh()->used_count);
+        $this->postJson(self::API.'/reserves', $this->payload($room, ['coupon_code' => 'UNICO']))->assertCreated();
+    }
+
+    public function test_idempotency_key_prevents_duplicate_reserves(): void
+    {
+        $room = Room::factory()->create(['inventory' => 5]);
+        $headers = ['Idempotency-Key' => 'reserva-abc-123'];
+
+        $first = $this->postJson(self::API.'/reserves', $this->payload($room), $headers)->assertCreated();
+
+        $this->postJson(self::API.'/reserves', $this->payload($room), $headers)
+            ->assertCreated()
+            ->assertHeader('Idempotent-Replayed', 'true')
+            ->assertJsonPath('data.id', $first->json('data.id'));
+
+        $this->assertDatabaseCount('reserves', 1);
+
+        // Mesma chave com outro conteúdo é rejeitada.
+        $this->postJson(self::API.'/reserves', $this->payload($room, ['check_out' => $this->day(14)]), $headers)
+            ->assertUnprocessable();
+
+        $this->assertDatabaseCount('reserves', 1);
+    }
+
+    public function test_rejects_malformed_idempotency_key(): void
+    {
+        $room = Room::factory()->create();
+
+        $this->postJson(self::API.'/reserves', $this->payload($room), ['Idempotency-Key' => 'curta'])
+            ->assertStatus(400);
+    }
+
+    public function test_responses_carry_request_id(): void
+    {
+        $this->getJson(self::API.'/hotels')->assertHeader('X-Request-Id');
+
+        $this->getJson(self::API.'/hotels', ['X-Request-Id' => 'trace-12345678'])
+            ->assertHeader('X-Request-Id', 'trace-12345678');
+    }
+
+    public function test_filters_reserves_by_status(): void
+    {
+        $room = Room::factory()->create();
+        Reserve::factory()->forRoom($room)->create();
+        Reserve::factory()->forRoom($room)->cancelled()->create();
+        Sanctum::actingAs(User::factory()->admin()->create());
+
+        $this->getJson(self::API.'/reserves?status=cancelled')->assertOk()->assertJsonCount(1, 'data');
+        $this->getJson(self::API.'/reserves?status=invalido')->assertOk()->assertJsonCount(2, 'data');
     }
 
     public function test_receptionist_cannot_cancel_reserve(): void
