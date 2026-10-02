@@ -1,0 +1,60 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: foco-app
+    environment:
+      CONTAINER_ROLE: app
+      SEED_ON_START: "true"
+    volumes:
+      - ./:/var/www/html
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # Executa o scheduler do Laravel (equivalente ao CRON "* * * * * php artisan schedule:run").
+  scheduler:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: foco-scheduler
+    environment:
+      CONTAINER_ROLE: scheduler
+    command: ["php", "artisan", "schedule:work"]
+    volumes:
+      - ./:/var/www/html
+    depends_on:
+      - app
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: foco-nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./:/var/www/html:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+
+  mysql:
+    image: mysql:8.0
+    container_name: foco-mysql
+    environment:
+      MYSQL_DATABASE: foco_hotel
+      MYSQL_USER: foco
+      MYSQL_PASSWORD: secret
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  mysql-data:
