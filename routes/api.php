@@ -34,6 +34,9 @@ Route::middleware('throttle:120,1')->group(function () {
     Route::get('availability', AvailabilitySearchController::class)->name('availability.search');
 });
 
+// "Minha reserva": limite baixo de tentativas contra adivinhação de localizadores.
+Route::post('reserves/lookup', [ReserveController::class, 'lookup'])->middleware('throttle:10,1')->name('reserves.lookup');
+
 Route::middleware('throttle:30,1')->group(function () {
     Route::post('reserves/quote', [ReserveController::class, 'quote'])->name('reserves.quote');
     Route::post('reserves', [ReserveController::class, 'store'])->middleware(Idempotency::class)->name('reserves.store');

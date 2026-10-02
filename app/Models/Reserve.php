@@ -46,6 +46,32 @@ class Reserve extends Model
         ];
     }
 
+    /** Sem 0/O e 1/I/L, para o hóspede não confundir ao digitar. */
+    private const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+    protected static function booted(): void
+    {
+        static::creating(function (Reserve $reserve) {
+            $reserve->code ??= static::generateCode();
+        });
+    }
+
+    /**
+     * Localizador de 8 caracteres (~10^12 combinações): o hóspede usa para consultar a
+     * reserva, e por não ser sequencial não permite descobrir reservas de terceiros.
+     */
+    public static function generateCode(): string
+    {
+        do {
+            $code = '';
+            for ($i = 0; $i < 8; $i++) {
+                $code .= self::CODE_ALPHABET[random_int(0, strlen(self::CODE_ALPHABET) - 1)];
+            }
+        } while (static::query()->where('code', $code)->exists());
+
+        return $code;
+    }
+
     public function hotel(): BelongsTo
     {
         return $this->belongsTo(Hotel::class);

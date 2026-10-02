@@ -13,6 +13,7 @@ class ReserveResource extends ApiResource
     {
         return [
             'id' => $this->id,
+            'code' => $this->code,
             'external_code' => $this->external_code,
             'status' => $this->status->value,
             'source' => $this->source,

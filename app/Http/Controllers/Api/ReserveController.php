@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\ReserveStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\LookupReserveRequest;
 use App\Http\Requests\QuoteReserveRequest;
 use App\Http\Requests\StoreReserveRequest;
 use App\Http\Resources\ApiResource;
@@ -43,6 +44,26 @@ class ReserveController extends Controller
         Gate::authorize('view', $reserve);
 
         return new ReserveResource($reserve->load(['hotel', 'room', 'coupon', 'guests', 'dailies', 'payments']));
+    }
+
+    /**
+     * "Minha reserva": o hóspede consulta com o localizador + sobrenome de um dos hóspedes.
+     * A resposta é a mesma (404) para código inexistente ou sobrenome errado, para não
+     * revelar se um localizador existe.
+     */
+    public function lookup(LookupReserveRequest $request): ReserveResource|JsonResponse
+    {
+        $reserve = Reserve::query()
+            ->where('code', $request->validated('code'))
+            ->whereHas('guests', fn ($q) => $q->whereRaw('LOWER(last_name) = ?', [mb_strtolower(trim($request->validated('last_name')))]))
+            ->with(['hotel', 'room', 'coupon', 'guests', 'dailies', 'payments'])
+            ->first();
+
+        if ($reserve === null) {
+            return response()->json(['message' => 'Reserva não encontrada. Confira o localizador e o sobrenome.'], 404);
+        }
+
+        return new ReserveResource($reserve);
     }
 
     /** Cotação: calcula diárias, descontos e taxas sem criar a reserva. */
