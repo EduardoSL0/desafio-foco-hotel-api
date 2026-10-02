@@ -20,10 +20,10 @@ use Illuminate\Support\Facades\Route;
 */
 
 // Autenticação
-Route::post('auth/login', [AuthController::class, 'login'])->middleware('throttle:10,1')->name('auth.login');
+Route::post('auth/login', [AuthController::class, 'login'])->middleware('throttle:login')->name('auth.login');
 
 // Rotas públicas (motor de reservas)
-Route::middleware('throttle:120,1')->group(function () {
+Route::middleware('throttle:public')->group(function () {
     Route::get('hotels', [HotelController::class, 'index'])->name('hotels.index');
     Route::get('hotels/{hotel}', [HotelController::class, 'show'])->name('hotels.show');
 
@@ -35,15 +35,15 @@ Route::middleware('throttle:120,1')->group(function () {
 });
 
 // "Minha reserva": limite baixo de tentativas contra adivinhação de localizadores.
-Route::post('reserves/lookup', [ReserveController::class, 'lookup'])->middleware('throttle:10,1')->name('reserves.lookup');
+Route::post('reserves/lookup', [ReserveController::class, 'lookup'])->middleware('throttle:lookup')->name('reserves.lookup');
 
-Route::middleware('throttle:30,1')->group(function () {
+Route::middleware('throttle:booking')->group(function () {
     Route::post('reserves/quote', [ReserveController::class, 'quote'])->name('reserves.quote');
     Route::post('reserves', [ReserveController::class, 'store'])->middleware(Idempotency::class)->name('reserves.store');
 });
 
 // Rotas autenticadas (gestão do hoteleiro) - Authorization: Bearer <token>
-Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
+Route::middleware(['auth:sanctum', 'throttle:staff'])->group(function () {
     Route::get('auth/me', [AuthController::class, 'me'])->name('auth.me');
     Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
 

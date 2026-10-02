@@ -11,7 +11,10 @@ use App\Services\Pricing\PriceCalculator;
 use App\Services\Pricing\Rules\CouponRule;
 use App\Services\Pricing\Rules\PromotionRule;
 use App\Services\Pricing\Rules\ServiceFeeRule;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -40,5 +43,32 @@ class AppServiceProvider extends ServiceProvider
     {
         // Em desenvolvimento, falha cedo ao tentar preencher atributos não permitidos (mass assignment).
         Model::preventSilentlyDiscardingAttributes(! $this->app->isProduction());
+
+        $this->configureRateLimiting();
+    }
+
+    /**
+     * Limitadores nomeados: cada grupo de rotas tem o PRÓPRIO contador.
+     *
+     * Com "throttle:10,1" o Laravel usa um único contador por IP para todas as rotas,
+     * e um hóspede que navegasse pelo site (busca, cotação) acabaria bloqueado no
+     * login ou na consulta da reserva. Aqui cada limitador é contado separadamente.
+     */
+    private function configureRateLimiting(): void
+    {
+        $byUserOrIp = fn (Request $request) => $request->user('sanctum')?->getAuthIdentifier() ?? $request->ip();
+
+        // Contra força bruta de senha: por IP e por e-mail tentado.
+        RateLimiter::for('login', fn (Request $request) => [
+            Limit::perMinute(10)->by('ip:'.$request->ip()),
+            Limit::perMinute(5)->by('email:'.mb_strtolower((string) $request->input('email'))),
+        ]);
+
+        // Contra adivinhação de localizadores.
+        RateLimiter::for('lookup', fn (Request $request) => Limit::perMinute(10)->by($request->ip()));
+
+        RateLimiter::for('booking', fn (Request $request) => Limit::perMinute(30)->by($byUserOrIp($request)));
+        RateLimiter::for('public', fn (Request $request) => Limit::perMinute(120)->by($request->ip()));
+        RateLimiter::for('staff', fn (Request $request) => Limit::perMinute(240)->by($byUserOrIp($request)));
     }
 }
