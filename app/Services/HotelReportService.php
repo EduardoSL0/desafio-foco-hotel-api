@@ -6,6 +6,7 @@ use App\Enums\ReserveStatus;
 use App\Models\Hotel;
 use App\Models\Payment;
 use App\Models\Reserve;
+use App\Models\Room;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -28,14 +29,14 @@ final class HotelReportService
         $to = $to->startOfDay();
         $days = (int) $from->diffInDays($to) + 1;
 
-        $inventory = (int) $hotel->rooms()->sum('inventory');
-        $availableNights = $inventory * $days;
-
         $nights = DB::table('dailies')
             ->join('reserves', 'reserves.id', '=', 'dailies.reserve_id')
             ->where('reserves.hotel_id', $hotel->id)
             ->where('reserves.status', '!=', ReserveStatus::Cancelled->value)
             ->whereBetween('dailies.date', [$from, $to]);
+
+        $inventory = $this->inventoryInPeriod($hotel, $from, $to, (clone $nights)->distinct()->pluck('reserves.room_id')->all());
+        $availableNights = $inventory * $days;
 
         $occupiedNights = (int) (clone $nights)->count();
         $revenue = Money::toCents((clone $nights)->sum(DB::raw('dailies.value - dailies.discount')));
@@ -87,5 +88,25 @@ final class HotelReportService
             ],
             'top_rooms' => $topRooms,
         ];
+    }
+
+    /**
+     * Unidades que existiam no período. Um quarto conta se:
+     *  - não foi removido antes do início do período; e
+     *  - foi cadastrado até o fim do período, OU tem diárias vendidas no período
+     *    (prova de que existia — necessário para quartos importados do XML, que
+     *    não trazem data de criação).
+     * Sem isso, um quarto criado hoje inflaria a disponibilidade de meses passados
+     * e derrubaria a taxa de ocupação histórica.
+     *
+     * @param  list<int>  $roomsWithNights
+     */
+    private function inventoryInPeriod(Hotel $hotel, CarbonImmutable $from, CarbonImmutable $to, array $roomsWithNights): int
+    {
+        return (int) Room::withTrashed()
+            ->where('hotel_id', $hotel->id)
+            ->where(fn ($q) => $q->whereNull('deleted_at')->orWhere('deleted_at', '>', $from))
+            ->where(fn ($q) => $q->where('created_at', '<=', $to->endOfDay())->orWhereIn('id', $roomsWithNights))
+            ->sum('inventory');
     }
 }
