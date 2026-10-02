@@ -19,6 +19,8 @@ class HotelReportApiTest extends TestCase
     {
         $this->artisan('import:xml')->assertSuccessful();
         $hotel = Hotel::query()->where('external_code', '1')->first();
+        // Regressão: quarto cadastrado hoje não pode inflar a disponibilidade de 2022.
+        Room::factory()->for($hotel)->create(['inventory' => 5]);
         Sanctum::actingAs(User::factory()->manager($hotel)->create());
 
         // Dezembro/2022 no Hotel Foco Prime: reserva 1 (3 diárias de 100) + reserva 2 (2 diárias de 250).
@@ -59,6 +61,20 @@ class HotelReportApiTest extends TestCase
             ->assertJsonPath('data.revenue.room_revenue', 200.0)
             ->assertJsonPath('data.reserves.by_status.cancelled', 1)
             ->assertJsonPath('data.reserves.paid_amount', 50.0);
+    }
+
+    public function test_rooms_count_only_while_they_existed(): void
+    {
+        $hotel = Hotel::factory()->create();
+        Room::factory()->for($hotel)->create(['inventory' => 2, 'created_at' => '2030-01-01']);
+        Room::factory()->for($hotel)->create(['inventory' => 4, 'created_at' => '2030-03-01']);            // criado depois
+        Room::factory()->for($hotel)->create(['inventory' => 8, 'created_at' => '2029-01-01'])->delete(); // removido antes
+        Sanctum::actingAs(User::factory()->admin()->create());
+
+        $this->getJson(self::API."/hotels/{$hotel->id}/report?from=2030-02-01&to=2030-02-28")
+            ->assertOk()
+            ->assertJsonPath('data.occupancy.inventory_units', 2)
+            ->assertJsonPath('data.occupancy.available_room_nights', 56);
     }
 
     public function test_only_admin_or_hotel_manager_can_see_report(): void

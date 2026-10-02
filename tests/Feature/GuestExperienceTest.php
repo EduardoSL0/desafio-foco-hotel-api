@@ -58,6 +58,35 @@ class GuestExperienceTest extends TestCase
         $this->postJson(self::API.'/reserves/lookup', ['code' => 'ZZZZZZZZ', 'last_name' => 'X'])->assertStatus(429);
     }
 
+    /** Regressão: com "throttle:N,1" todas as rotas dividiam um único contador por IP. */
+    public function test_browsing_the_site_does_not_block_lookup_or_login(): void
+    {
+        $room = Room::factory()->create(['inventory' => 5]);
+
+        for ($i = 0; $i < 25; $i++) {
+            $this->getJson(self::API.'/hotels')->assertOk();
+        }
+        for ($i = 0; $i < 5; $i++) {
+            $this->postJson(self::API.'/reserves', $this->payload($room))->assertCreated();
+        }
+
+        $code = Reserve::query()->value('code');
+
+        $this->postJson(self::API.'/reserves/lookup', ['code' => $code, 'last_name' => 'Souza'])->assertOk();
+        $this->postJson(self::API.'/auth/login', ['email' => 'ninguem@foco.test', 'password' => 'x'])->assertUnauthorized();
+    }
+
+    public function test_login_is_limited_per_email_against_brute_force(): void
+    {
+        User::factory()->create(['email' => 'alvo@foco.test', 'password' => 'correta123']);
+
+        for ($i = 0; $i < 5; $i++) {
+            $this->postJson(self::API.'/auth/login', ['email' => 'alvo@foco.test', 'password' => "errada{$i}"])->assertUnauthorized();
+        }
+
+        $this->postJson(self::API.'/auth/login', ['email' => 'alvo@foco.test', 'password' => 'correta123'])->assertStatus(429);
+    }
+
     public function test_sends_confirmation_email_to_guest(): void
     {
         Mail::fake();

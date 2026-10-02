@@ -26,7 +26,7 @@ API REST em **Laravel 12 (PHP 8.2+)** para gestão hoteleira:
 | **Localizador + "Minha reserva"** | Cada reserva recebe um código não sequencial (ex.: `FH7K3Q9X`); o hóspede consulta a reserva com o código e o sobrenome, sem precisar de conta. |
 | **E-mail de confirmação** | Enviado ao hóspede com localizador, datas, diárias e valores — só depois que a reserva é gravada, e uma falha no envio nunca desfaz a reserva. |
 | **Proteção do inventário** | O hoteleiro não consegue reduzir as unidades de um quarto abaixo das reservas futuras já vendidas (evita overbooking por edição). |
-| **97 testes automatizados** | Cobrem importação, regras de preço, permissões, concorrência de cupom, idempotência, relatórios e a experiência do hóspede. |
+| **100 testes automatizados** | Cobrem importação, regras de preço, permissões, concorrência de cupom, idempotência, relatórios e a experiência do hóspede. |
 
 ---
 
@@ -589,7 +589,7 @@ grep "c0a8f1e2-..." storage/logs/*.log
 
 - Autenticação por token (Sanctum) com expiração; senhas com bcrypt.
 - Autorização por perfil **e** por hotel (um gerente não altera quartos de outro hotel).
-- *Rate limiting*: login 10/min, criação de reservas 30/min, demais rotas 120/min.
+- *Rate limiting* com contadores independentes: login 10/min por IP e 5/min por e-mail, "minha reserva" 10/min, cotação/criação de reservas 30/min, rotas públicas 120/min e da equipe 240/min.
 - Pagamento junto com a reserva só é aceito da equipe autenticada do hotel (rota pública não consegue criar reserva "paga").
 - `Idempotency-Key` evita reservas/pagamentos duplicados em reenvios; *lock* de linha evita overbooking e uso de cupom acima do limite.
 - Senha forte (mín. 8, letras e números) e revogação de tokens ao trocar a senha.
@@ -664,6 +664,8 @@ Antes da entrega o projeto passou por uma revisão; os problemas encontrados e a
 | Valores monetários redondos saíam como inteiros (`100`) e outros como decimais (`99.9`). | Serialização sempre decimal (`100.0`) para tipo consistente nos clientes. |
 | Fuso horário ignorado no Laravel 12 (datas em UTC). | `config/app.php` com `America/Bahia`. |
 | Filtro `status` da listagem de reservas aceitava qualquer valor. | Validado contra o enum `ReserveStatus`. |
+| **Limite de requisições compartilhado entre rotas**: com `throttle:N,1` o Laravel usa um único contador por IP; um hóspede navegando pelo site (busca, cotação, reserva) era bloqueado (429) no login e na consulta da reserva. Encontrado executando o fluxo completo. | Limitadores nomeados e independentes por grupo (`login`, `lookup`, `booking`, `public`, `staff`); login também limitado por e-mail (5/min) contra força bruta. Teste de regressão reproduz o cenário. |
+| **Relatório contava quartos criados depois do período**: um quarto cadastrado hoje inflava a disponibilidade de meses passados e derrubava a ocupação histórica. | O quarto só conta no período em que existia (ou se teve diárias vendidas nele, caso dos quartos do XML, sem data de criação). |
 | **Rodar os testes dentro do container apagava o banco MySQL de desenvolvimento**: as variáveis do Docker (`DB_CONNECTION=mysql`) tinham prioridade sobre o `phpunit.xml`, e o `RefreshDatabase` recriava as tabelas reais. | `phpunit.xml` força SQLite em memória (`<env>` e `<server>` com `force="true"`) e o `TestCase` aborta se o banco não for o de teste. |
 
 Validação final: o repositório foi clonado em uma pasta vazia (sem `vendor`, `.env` ou banco) e `docker compose up`
