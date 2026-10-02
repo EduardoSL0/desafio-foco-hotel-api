@@ -16,3 +16,4 @@ npm-debug.log
 /.fleet
 /storage/.ready
 /database/*.sqlite
+/docker/certs/*.crt

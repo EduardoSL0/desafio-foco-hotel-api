@@ -80,6 +80,10 @@ Serviços do `docker-compose.yml`:
 | `mysql`     | Banco de dados MySQL 8                                                 |
 | `scheduler` | Roda `php artisan schedule:work` — é o **CRON** que dispara a importação |
 
+> **Antivírus/proxy que inspeciona HTTPS** (ex.: Avast, proxy corporativo): se o build falhar com
+> `TLS: server certificate not trusted`, exporte o certificado raiz do antivírus em PEM para
+> `docker/certs/<nome>.crt` (pasta ignorada pelo Git) e rode `docker compose build --no-cache`.
+
 Comandos úteis:
 
 ```bash

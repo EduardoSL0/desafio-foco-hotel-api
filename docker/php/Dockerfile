@@ -1,5 +1,10 @@
 FROM php:8.3-fpm-alpine
 
+# Certificados raiz extras opcionais (ex.: antivírus/proxy corporativo que inspeciona HTTPS).
+# Coloque arquivos .crt (PEM) em docker/certs/ — a pasta é ignorada pelo Git.
+COPY docker/certs/ /tmp/extra-certs/
+RUN for c in /tmp/extra-certs/*.crt; do [ -f "$c" ] && cat "$c" >> /etc/ssl/certs/ca-certificates.crt; done; rm -rf /tmp/extra-certs
+
 RUN apk add --no-cache libzip-dev zip unzip git \
     && docker-php-ext-install pdo_mysql zip
 
