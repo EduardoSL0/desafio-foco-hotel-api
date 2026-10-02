@@ -2,6 +2,9 @@ openapi: 3.0.0
 info:
   title: Foco Hotel API
   version: 1.0.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
   description: |
     API REST do desafio Foco Multimídia: gestão de quartos/acomodações e motor de reservas.
 
@@ -14,20 +17,34 @@ info:
     - `receptionist` — consulta reservas e registra pagamentos do próprio hotel.
 
     Usuários de teste (após o seed): `admin@foco.test`, `gerente@foco.test`, `recepcao@foco.test` — senha `password`.
+security: []
 servers:
   - url: /api/v1
     description: Servidor atual
 tags:
   - name: Auth
+    description: Login e tokens de acesso (Sanctum)
   - name: Hotéis
+    description: Hotéis importados do XML
   - name: Quartos
+    description: CRUD de quartos/acomodações e disponibilidade
   - name: Reservas
+    description: "Motor de reservas: busca, cotação, criação e cancelamento"
   - name: Pagamentos
+    description: Pagamentos das reservas (parcelamento e juros)
   - name: Cupons
+    description: Cupons de desconto
+  - name: Promoções
+    description: Promoções por período, por hotel ou quarto
+  - name: Usuários
+    description: Equipe do hotel e perfis de acesso
+  - name: Relatórios
+    description: Indicadores de desempenho do hotel
 
 paths:
   /auth/login:
     post:
+      operationId: postAuthLogin
       tags: [Auth]
       summary: Gera um token de acesso
       requestBody:
@@ -58,6 +75,7 @@ paths:
 
   /auth/me:
     get:
+      operationId: getAuthMe
       tags: [Auth]
       summary: Usuário autenticado
       security: [{ bearerAuth: [] }]
@@ -74,6 +92,7 @@ paths:
 
   /auth/logout:
     post:
+      operationId: postAuthLogout
       tags: [Auth]
       summary: Revoga o token atual
       security: [{ bearerAuth: [] }]
@@ -83,6 +102,7 @@ paths:
 
   /hotels:
     get:
+      operationId: getHotels
       tags: [Hotéis]
       summary: Lista os hotéis
       responses:
@@ -99,6 +119,7 @@ paths:
 
   /hotels/{hotel}:
     get:
+      operationId: getHotelsHotel
       tags: [Hotéis]
       summary: Detalha um hotel
       parameters: [{ $ref: '#/components/parameters/HotelId' }]
@@ -115,6 +136,7 @@ paths:
 
   /rooms:
     get:
+      operationId: getRooms
       tags: [Quartos]
       summary: Lista quartos (paginado)
       parameters:
@@ -136,6 +158,7 @@ paths:
                   links: { type: object }
                   meta: { type: object }
     post:
+      operationId: postRooms
       tags: [Quartos]
       summary: Cadastra um quarto
       description: Permitido para `admin` ou `manager` do hotel informado.
@@ -161,6 +184,7 @@ paths:
   /rooms/{room}:
     parameters: [{ $ref: '#/components/parameters/RoomId' }]
     get:
+      operationId: getRoomsRoom
       tags: [Quartos]
       summary: Detalha um quarto
       responses:
@@ -174,6 +198,7 @@ paths:
                   data: { $ref: '#/components/schemas/Room' }
         '404': { $ref: '#/components/responses/NotFound' }
     put:
+      operationId: putRoomsRoom
       tags: [Quartos]
       summary: Atualiza um quarto (PUT/PATCH, campos parciais aceitos)
       description: '`hotel_id` não pode ser alterado.'
@@ -197,6 +222,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
     patch:
+      operationId: patchRoomsRoom
       tags: [Quartos]
       summary: Atualiza parcialmente um quarto
       security: [{ bearerAuth: [] }]
@@ -210,6 +236,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
     delete:
+      operationId: deleteRoomsRoom
       tags: [Quartos]
       summary: Remove um quarto (soft delete)
       description: Bloqueado (409) se houver reservas futuras ativas.
@@ -223,6 +250,7 @@ paths:
 
   /rooms/{room}/availability:
     get:
+      operationId: getRoomsRoomAvailability
       tags: [Quartos]
       summary: Unidades disponíveis do quarto no período
       parameters:
@@ -249,6 +277,7 @@ paths:
 
   /reserves/quote:
     post:
+      operationId: postReservesQuote
       tags: [Reservas]
       summary: Cotação da estadia (não cria reserva)
       requestBody:
@@ -269,6 +298,7 @@ paths:
 
   /reserves:
     get:
+      operationId: getReserves
       tags: [Reservas]
       summary: Lista reservas (admin vê todas; demais, apenas do próprio hotel)
       security: [{ bearerAuth: [] }]
@@ -290,6 +320,13 @@ paths:
                     items: { $ref: '#/components/schemas/Reserve' }
         '401': { $ref: '#/components/responses/Unauthorized' }
     post:
+      operationId: postReserves
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Chave única por tentativa; reenvios com a mesma chave devolvem a resposta original sem duplicar.
+          schema: { type: string, minLength: 8, maxLength: 100, example: 7f1c2b9e-reserva-maria }
       tags: [Reservas]
       summary: Cria uma reserva
       description: |
@@ -318,6 +355,7 @@ paths:
 
   /reserves/{reserve}:
     get:
+      operationId: getReservesReserve
       tags: [Reservas]
       summary: Detalha uma reserva
       security: [{ bearerAuth: [] }]
@@ -336,6 +374,7 @@ paths:
 
   /reserves/{reserve}/cancel:
     patch:
+      operationId: patchReservesReserveCancel
       tags: [Reservas]
       summary: Cancela uma reserva (admin/manager)
       security: [{ bearerAuth: [] }]
@@ -348,6 +387,7 @@ paths:
   /reserves/{reserve}/payments:
     parameters: [{ $ref: '#/components/parameters/ReserveId' }]
     get:
+      operationId: getReservesReservePayments
       tags: [Pagamentos]
       summary: Lista pagamentos da reserva
       security: [{ bearerAuth: [] }]
@@ -363,6 +403,13 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/Payment' }
     post:
+      operationId: postReservesReservePayments
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Chave única por tentativa; reenvios com a mesma chave devolvem a resposta original sem duplicar.
+          schema: { type: string, minLength: 8, maxLength: 100, example: 7f1c2b9e-reserva-maria }
       tags: [Pagamentos]
       summary: Registra um pagamento
       description: |
@@ -394,6 +441,7 @@ paths:
 
   /coupons:
     get:
+      operationId: getCoupons
       tags: [Cupons]
       summary: Lista cupons
       security: [{ bearerAuth: [] }]
@@ -409,6 +457,7 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/Coupon' }
     post:
+      operationId: postCoupons
       tags: [Cupons]
       summary: Cria um cupom (global apenas para admin)
       security: [{ bearerAuth: [] }]
@@ -431,6 +480,7 @@ paths:
 
   /coupons/{coupon}:
     delete:
+      operationId: deleteCouponsCoupon
       tags: [Cupons]
       summary: Remove um cupom
       security: [{ bearerAuth: [] }]
@@ -439,6 +489,227 @@ paths:
       responses:
         '204': { description: Removido }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  /availability:
+    get:
+      operationId: getAvailability
+      tags: [Reservas]
+      summary: Busca quartos disponíveis com preço calculado
+      description: |
+        Retorna os quartos com unidades livres no período, que comportam o número de hóspedes e
+        possuem tarifa, com o total já calculado (promoções, cupom e taxas), ordenados pelo menor preço.
+        Um cupom inválido para um hotel é ignorado naquele resultado.
+      parameters:
+        - { name: check_in, in: query, required: true, schema: { type: string, format: date } }
+        - { name: check_out, in: query, required: true, schema: { type: string, format: date } }
+        - { name: guests, in: query, schema: { type: integer, default: 1 } }
+        - { name: hotel_id, in: query, schema: { type: integer } }
+        - { name: coupon_code, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Resultados da busca
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/SearchResult" }
+                  meta:
+                    type: object
+                    properties:
+                      check_in: { type: string, format: date }
+                      check_out: { type: string, format: date }
+                      guests: { type: integer }
+                      results: { type: integer }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /hotels/{hotel}/report:
+    get:
+      operationId: getHotelsHotelReport
+      tags: [Relatórios]
+      summary: Indicadores do hotel (ocupação, ADR, RevPAR, recebimentos)
+      description: |
+        Apenas admin ou gerente do hotel. Período padrão: mês atual.
+        - **Ocupação** = room-nights vendidas / room-nights disponíveis
+        - **ADR** (diária média) = receita de hospedagem / room-nights vendidas
+        - **RevPAR** = receita de hospedagem / room-nights disponíveis
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/HotelId" }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+      responses:
+        "200":
+          description: Relatório
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/HotelReport" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /promotions:
+    get:
+      operationId: getPromotions
+      tags: [Promoções]
+      summary: Lista promoções (admin vê todas; demais, do próprio hotel)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: hotel_id, in: query, schema: { type: integer } }
+        - { name: only_active, in: query, schema: { type: boolean } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Promotion" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      operationId: postPromotions
+      tags: [Promoções]
+      summary: Cria uma promoção (admin ou gerente do hotel)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromotionInput" }
+      responses:
+        "201":
+          description: Criada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Promotion" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /promotions/{promotion}:
+    parameters:
+      - { name: promotion, in: path, required: true, schema: { type: integer } }
+    get:
+      operationId: getPromotionsPromotion
+      tags: [Promoções]
+      summary: Detalha uma promoção
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: OK }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: patchPromotionsPromotion
+      tags: [Promoções]
+      summary: Atualiza uma promoção (campos parciais; hotel_id não pode mudar)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromotionInput" }
+      responses:
+        "200": { description: Atualizada }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      operationId: deletePromotionsPromotion
+      tags: [Promoções]
+      summary: Remove uma promoção
+      security: [{ bearerAuth: [] }]
+      responses:
+        "204": { description: Removida }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /users:
+    get:
+      operationId: getUsers
+      tags: [Usuários]
+      summary: Lista a equipe (admin vê todos; gerente, o próprio hotel)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: hotel_id, in: query, schema: { type: integer } }
+        - { name: role, in: query, schema: { type: string, enum: [admin, manager, receptionist] } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/User" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      operationId: postUsers
+      tags: [Usuários]
+      summary: Cadastra um usuário
+      description: |
+        Admin cadastra qualquer perfil. Gerente cadastra gerentes/recepcionistas apenas no próprio hotel
+        (hotel_id pode ser omitido). Senha mínima de 8 caracteres com letras e números.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserInput" }
+      responses:
+        "201":
+          description: Criado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/User" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /users/{user}:
+    parameters:
+      - { name: user, in: path, required: true, schema: { type: integer } }
+    get:
+      operationId: getUsersUser
+      tags: [Usuários]
+      summary: Detalha um usuário (o próprio ou da equipe gerenciada)
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: OK }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    patch:
+      operationId: patchUsersUser
+      tags: [Usuários]
+      summary: Atualiza um usuário (troca de senha revoga os tokens ativos)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserInput" }
+      responses:
+        "200": { description: Atualizado }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      operationId: deleteUsersUser
+      tags: [Usuários]
+      summary: Remove um usuário (não é possível remover a si mesmo)
+      security: [{ bearerAuth: [] }]
+      responses:
+        "204": { description: Removido }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
 components:
   securitySchemes:
@@ -468,7 +739,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Message' }
     Conflict:
-      description: Conflito de regra de negócio (ex.: sem disponibilidade)
+      description: 'Conflito de regra de negócio (ex.: sem disponibilidade)'
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Message' }
@@ -489,6 +760,107 @@ components:
                   items: { type: string }
 
   schemas:
+    Promotion:
+      type: object
+      properties:
+        id: { type: integer }
+        hotel_id: { type: integer }
+        room_id: { type: integer, nullable: true, description: Nulo = todos os quartos do hotel }
+        name: { type: string, example: Baixa temporada }
+        discount_percent: { type: number, example: 15.0 }
+        starts_at: { type: string, format: date }
+        ends_at: { type: string, format: date }
+        active: { type: boolean }
+
+    PromotionInput:
+      type: object
+      required: [hotel_id, name, discount_percent, starts_at, ends_at]
+      properties:
+        hotel_id: { type: integer, example: 1 }
+        room_id: { type: integer, nullable: true }
+        name: { type: string, example: Feriado }
+        discount_percent: { type: number, minimum: 0.01, maximum: 100, example: 20 }
+        starts_at: { type: string, format: date, example: "2030-12-20" }
+        ends_at: { type: string, format: date, example: "2030-12-31" }
+        active: { type: boolean, default: true }
+
+    UserInput:
+      type: object
+      required: [name, email, password, role]
+      properties:
+        name: { type: string, example: Ana Recepção }
+        email: { type: string, format: email, example: ana@foco.test }
+        password: { type: string, format: password, minLength: 8, example: senhaForte123 }
+        role: { type: string, enum: [admin, manager, receptionist] }
+        hotel_id: { type: integer, nullable: true, description: "Obrigatório para manager/receptionist; proibido para admin" }
+
+    SearchResult:
+      type: object
+      properties:
+        room:
+          type: object
+          properties:
+            id: { type: integer }
+            name: { type: string }
+            capacity: { type: integer }
+            daily_price: { type: number }
+        hotel:
+          type: object
+          properties:
+            id: { type: integer }
+            name: { type: string }
+        available_units: { type: integer }
+        coupon_applied: { type: string, nullable: true }
+        price:
+          type: object
+          properties:
+            nights: { type: integer }
+            subtotal: { type: number }
+            discount: { type: number }
+            fees: { type: number }
+            total: { type: number }
+            average_daily: { type: number }
+            adjustments: { type: array, items: { type: object } }
+
+    HotelReport:
+      type: object
+      properties:
+        hotel: { type: object }
+        period:
+          type: object
+          properties:
+            from: { type: string, format: date }
+            to: { type: string, format: date }
+            days: { type: integer }
+        occupancy:
+          type: object
+          properties:
+            inventory_units: { type: integer }
+            available_room_nights: { type: integer }
+            occupied_room_nights: { type: integer }
+            rate_percent: { type: number, example: 8.06 }
+        revenue:
+          type: object
+          properties:
+            room_revenue: { type: number, example: 800.0 }
+            adr: { type: number, example: 160.0 }
+            revpar: { type: number, example: 12.9 }
+        reserves:
+          type: object
+          properties:
+            by_status: { type: object, additionalProperties: { type: integer } }
+            booked_amount: { type: number }
+            paid_amount: { type: number }
+            outstanding_amount: { type: number }
+        top_rooms:
+          type: array
+          items:
+            type: object
+            properties:
+              room_id: { type: integer }
+              name: { type: string }
+              nights: { type: integer }
+
     Message:
       type: object
       properties:
@@ -533,7 +905,7 @@ components:
       properties:
         hotel_id: { type: integer, example: 1 }
         name: { type: string, maxLength: 120, example: Standard Casal }
-        description: { type: string, example: Cama de casal, ar-condicionado e varanda }
+        description: { type: string, example: 'Cama de casal, ar-condicionado e varanda' }
         capacity: { type: integer, minimum: 1, maximum: 20, default: 2 }
         inventory: { type: integer, minimum: 1, maximum: 1000, default: 1, example: 10 }
         daily_price: { type: number, minimum: 0, example: 189.9 }

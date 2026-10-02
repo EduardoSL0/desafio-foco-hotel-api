@@ -10,6 +10,19 @@ API REST em **Laravel 12 (PHP 8.2+)** para gestão hoteleira:
 
 > Todas as respostas da API são em **JSON**.
 
+### ⭐ Além do que foi pedido
+
+| Diferencial | Por que importa |
+|---|---|
+| **Busca de disponibilidade** (`GET /availability`) | O hóspede informa datas e nº de pessoas e recebe só os quartos livres, com o **preço final já calculado**, do mais barato ao mais caro — é a tela principal de qualquer motor de reservas. |
+| **Relatório do hoteleiro** (`GET /hotels/{id}/report`) | **Taxa de ocupação, ADR (diária média) e RevPAR**, os indicadores que a hotelaria usa de verdade, além de valores recebidos e a receber. |
+| **Idempotency-Key** em reservas e pagamentos | Se a rede cair e o cliente reenviar, **não cria reserva/pagamento duplicado** (mesmo padrão do Stripe). |
+| **Sem overbooking** | Inventário por quarto, ocupação calculada noite a noite e *lock* de linha no banco para reservas simultâneas. |
+| **Request-ID** (`X-Request-Id`) | Cada resposta traz um ID que aparece em todos os logs da requisição — rastreio ponta a ponta de um erro reportado. |
+| **CI no GitHub Actions** | A cada push: testes em PHP 8.2 e 8.3, padrão de código (Pint) e validação da especificação OpenAPI. |
+| **Importação idempotente e transacional** | O cron pode rodar quantas vezes quiser; arquivo ausente ou XML inválido não altera nada no banco. |
+| **90 testes automatizados** | Cobrem importação, regras de preço, permissões, concorrência de cupom, idempotência e relatórios. |
+
 ---
 
 ## Sumário
@@ -28,6 +41,7 @@ API REST em **Laravel 12 (PHP 8.2+)** para gestão hoteleira:
 12. [Segurança](#12-segurança)
 13. [Padrão de Git](#13-padrão-de-git)
 14. [Decisões e inconsistências encontradas nos XMLs](#14-decisões-e-inconsistências-encontradas-nos-xmls)
+15. [Revisão de código](#15-revisão-de-código)
 
 ---
 
@@ -310,10 +324,22 @@ Use o `access_token` retornado em `Authorization: Bearer <token>`. O token expir
 | Criar/editar/remover quarto           | ✅    | ✅                      | ❌                           | ❌      |
 | Listar/ver reservas                   | ✅    | ✅                      | ✅                           | ❌      |
 | Cancelar reserva                      | ✅    | ✅                      | ❌                           | ❌      |
-| Registrar pagamento                   | ✅    | ✅                      | ✅                           | ❌      |
+| Registrar pagamento (inclusive junto com a reserva) | ✅ | ✅                  | ✅                           | ❌      |
 | Criar cupom do hotel / cupom global   | ✅ / ✅ | ✅ / ❌               | ❌                           | ❌      |
+| Gerenciar promoções                   | ✅    | ✅                      | ❌                           | ❌      |
+| Ver relatório do hotel                | ✅    | ✅                      | ❌                           | ❌      |
+| Cadastrar/editar/remover usuários     | ✅ (qualquer perfil) | ✅ (gerente/recepção do próprio hotel) | ❌ (só vê o próprio perfil) | ❌ |
 
 As regras ficam em `app/Policies` e nos métodos `worksAt()` / `canManageHotel()` do model `User`.
+Trocar a senha de um usuário revoga os tokens ativos dele.
+
+**Cadastrar um funcionário** (como gerente, o hotel é o do próprio gerente):
+
+```bash
+curl -X POST http://localhost:8080/api/v1/users \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"Ana Recepção","email":"ana@foco.test","password":"senhaForte123","role":"receptionist"}'
+```
 
 ---
 
@@ -339,6 +365,34 @@ Base: `http://localhost:8080/api/v1` — documentação interativa em **http://l
 | PATCH       | `/reserves/{id}/cancel`            | 🔒   | Cancela reserva                         |
 | GET / POST  | `/reserves/{id}/payments`          | 🔒   | Lista / registra pagamentos             |
 | GET / POST  | `/coupons` · DELETE `/coupons/{id}`| 🔒   | Cupons                                  |
+| GET         | `/availability`                    |      | ⭐ **Busca** de quartos livres com preço |
+| GET         | `/hotels/{id}/report`              | 🔒   | ⭐ **Relatório**: ocupação, ADR, RevPAR  |
+| CRUD        | `/promotions`                      | 🔒   | Promoções                               |
+| CRUD        | `/users`                           | 🔒   | Equipe do hotel                         |
+
+### Buscar disponibilidade
+
+```bash
+curl "http://localhost:8080/api/v1/availability?check_in=2030-12-01&check_out=2030-12-04&guests=2&coupon_code=BEMVINDO10"
+```
+
+Retorna cada quarto livre com `available_units` e `price` (`subtotal`, `discount`, `fees`, `total`, `average_daily`), ordenado pelo menor total.
+
+### Relatório do hotel
+
+```bash
+curl "http://localhost:8080/api/v1/hotels/1/report?from=2022-12-01&to=2022-12-31" -H "Authorization: Bearer $TOKEN"
+```
+
+Com os dados do XML, o Hotel Foco Prime em dezembro/2022 tem 62 room-nights disponíveis (2 quartos × 31 dias), 5 vendidas, **ocupação 8,06%**, receita R$ 800, **ADR R$ 160** e **RevPAR R$ 12,90**.
+
+### Evitar reserva duplicada (Idempotency-Key)
+
+```bash
+curl -X POST http://localhost:8080/api/v1/reserves -H "Idempotency-Key: 7f1c2b9e-reserva-maria" ...
+```
+
+Reenviar a mesma requisição com a mesma chave devolve a reserva original (cabeçalho `Idempotent-Replayed: true`) em vez de criar outra; a mesma chave com outro conteúdo retorna `422`.
 
 ### Como cadastrar um quarto
 
@@ -384,12 +438,7 @@ curl -X POST http://localhost:8080/api/v1/reserves \
         "check_out": "2030-12-04",
         "coupon_code": "BEMVINDO10",
         "guests": [
-        { "name": "Maria", "last_name": "Souza", "phone": "5571999990000", "email": "maria@example.com"
-    }
-        ],
-        "payments": [
-        { "method": 1, "value": 100.00, "installments": 2
-    }
+          { "name": "Maria", "last_name": "Souza", "phone": "5571999990000", "email": "maria@example.com" }
         ]
       }'
 ```
@@ -399,17 +448,21 @@ Resposta `201` (resumida):
 ```json
 {
   "data": {
-    "id": 7, "status": "partially_paid", "check_in": "2030-12-01", "check_out": "2030-12-04", "nights": 3,
+    "id": 7, "status": "pending", "check_in": "2030-12-01", "check_out": "2030-12-04", "nights": 3,
     "coupon_code": "BEMVINDO10",
-    "amounts": { "subtotal": 300.0, "discount": 30.0, "fees": 0.0, "total": 270.0, "paid": 100.0, "balance": 170.0 },
+    "amounts": { "subtotal": 300.0, "discount": 30.0, "fees": 0.0, "total": 270.0, "paid": 0.0, "balance": 270.0 },
     "dailies": [ { "date": "2030-12-01", "value": 100.0, "discount": 0.0 }, "..." ],
     "guests": [ { "id": 6, "name": "Maria", "last_name": "Souza", "phone": "5571999990000" } ],
-    "payments": [ { "method": 1, "method_label": "Cartão de crédito", "value": 100.0, "installments": 2, "interest": 0.0 } ]
+    "payments": []
   }
 }
 ```
 
-Para apenas simular o preço use `POST /reserves/quote` com os mesmos campos (sem `guests`).
+- Para apenas simular o preço use `POST /reserves/quote` com os mesmos campos (sem `guests`).
+- **Pagamento junto com a reserva** (ex.: no balcão): a equipe do hotel, autenticada, pode enviar
+  `"payments": [{ "method": 1, "value": 100.00, "installments": 2 }]` no mesmo corpo. Em requisições
+  públicas esse campo é recusado — caso contrário qualquer cliente poderia criar uma reserva já "paga".
+- Os pagamentos posteriores são registrados em `POST /reserves/{id}/payments`.
 
 Códigos de resposta: `201` criado · `401` sem token · `403` sem permissão · `404` não encontrado · `409` sem disponibilidade / conflito · `422` validação · `429` limite de requisições.
 
@@ -490,10 +543,17 @@ Os testes usam SQLite em memória (`phpunit.xml`) e cobrem:
 |-------------------------------------------|-------------------------------------------------------------------|
 | `tests/Feature/ImportXmlCommandTest.php`  | importação completa, idempotência, status, deduplicação, XML inválido, inconsistências |
 | `tests/Feature/RoomApiTest.php`           | CRUD de quartos, filtros, permissões por perfil/hotel, soft delete, disponibilidade |
-| `tests/Feature/ReserveApiTest.php`        | criação, inventário, reservas encostadas, cupons, promoções, taxas, validações, rollback, cancelamento |
+| `tests/Feature/ReserveApiTest.php`        | criação, inventário, reservas encostadas, cupons (inclusive devolução no cancelamento), promoções, taxas, validações, rollback, pagamento só pela equipe, idempotência, Request-ID |
 | `tests/Feature/PaymentApiTest.php`        | pagamentos, saldo, juros de parcelamento, permissões              |
 | `tests/Feature/AuthApiTest.php`           | login, token, rotas protegidas                                   |
+| `tests/Feature/UserApiTest.php`           | gestão da equipe: perfis permitidos por papel, hotel, senha forte, revogação de tokens |
+| `tests/Feature/PromotionApiTest.php`      | CRUD de promoções, efeito na cotação, quarto do mesmo hotel, permissões |
+| `tests/Feature/AvailabilitySearchApiTest.php` | busca: filtros de capacidade/tarifa/lotação, ordenação por preço, cupom |
+| `tests/Feature/HotelReportApiTest.php`    | ocupação, ADR e RevPAR conferidos com os dados reais do XML       |
 | `tests/Unit/*`                            | cálculo de preço e regras de cupom                                |
+
+O mesmo conjunto roda no **GitHub Actions** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) em PHP 8.2 e 8.3,
+junto com `pint --test` (padrão de código) e a validação da especificação OpenAPI (Redocly).
 
 ---
 
@@ -508,6 +568,13 @@ Os testes usam SQLite em memória (`phpunit.xml`) e cobrem:
 
 Os arquivos são rotacionados diariamente. O corpo das requisições **não** é logado, para não gravar dados pessoais ou senhas.
 
+Toda linha de log de uma requisição carrega o mesmo `request_id`, também devolvido no cabeçalho `X-Request-Id`
+(o cliente pode enviar o próprio ID). Assim, um erro reportado pelo cliente é encontrado com:
+
+```bash
+grep "c0a8f1e2-..." storage/logs/*.log
+```
+
 ---
 
 ## 12. Segurança
@@ -515,6 +582,10 @@ Os arquivos são rotacionados diariamente. O corpo das requisições **não** é
 - Autenticação por token (Sanctum) com expiração; senhas com bcrypt.
 - Autorização por perfil **e** por hotel (um gerente não altera quartos de outro hotel).
 - *Rate limiting*: login 10/min, criação de reservas 30/min, demais rotas 120/min.
+- Pagamento junto com a reserva só é aceito da equipe autenticada do hotel (rota pública não consegue criar reserva "paga").
+- `Idempotency-Key` evita reservas/pagamentos duplicados em reenvios; *lock* de linha evita overbooking e uso de cupom acima do limite.
+- Senha forte (mín. 8, letras e números) e revogação de tokens ao trocar a senha.
+- `X-Request-Id` em toda resposta e nos logs, aceito do cliente apenas em formato seguro (sem injeção nos logs).
 - Validação estrita de entrada (Form Requests) e *mass assignment* protegido (`$fillable`).
 - Leitura de XML com `LIBXML_NONET` (sem acesso a recursos externos — proteção contra XXE).
 - Consultas via Eloquent/Query Builder (parâmetros *bound*, sem SQL injection).
@@ -543,3 +614,19 @@ git log --oneline
 | `rooms.xml` não traz tarifa                                           | `daily_price` é preenchido com a última diária importada do quarto (se ainda vazio); quartos sem reservas ficam sem tarifa até serem editados via API. |
 | `<Method>1</Method>` sem descrição                                    | Mapeamento próprio: 1 crédito, 2 débito, 3 pix, 4 dinheiro, 5 boleto.                       |
 | Total do XML diferente da soma das diárias                            | Diferença registrada como desconto (se menor) ou taxa (se maior), com aviso.                |
+
+---
+
+## 15. Revisão de código
+
+Antes da entrega o projeto passou por uma revisão; os problemas encontrados e as correções:
+
+| Problema encontrado | Correção |
+|---|---|
+| A rota pública `POST /reserves` aceitava `payments`, permitindo a qualquer pessoa criar uma reserva já "paga". | Pagamento junto com a reserva restrito à equipe autenticada do hotel (teste cobrindo o caso). |
+| Uso de cupom verificado sem *lock*: reservas simultâneas podiam ultrapassar `max_uses`; o cancelamento não devolvia o uso. | `SELECT ... FOR UPDATE` no cupom e devolução do uso ao cancelar. |
+| O container executa o seed a cada inicialização, e o seeder **redefinia senhas** e sobrescrevia promoções/taxas. | Dados de demonstração criados só na primeira execução; a importação (idempotente) continua rodando sempre. |
+| `openapi.yaml` com erros de sintaxe (dois-pontos sem aspas) que impediam o Swagger de carregar partes da especificação. | Corrigido e validado com Redocly, agora também no CI. |
+| Valores monetários redondos saíam como inteiros (`100`) e outros como decimais (`99.9`). | Serialização sempre decimal (`100.0`) para tipo consistente nos clientes. |
+| Fuso horário ignorado no Laravel 12 (datas em UTC). | `config/app.php` com `America/Bahia`. |
+| Filtro `status` da listagem de reservas aceitava qualquer valor. | Validado contra o enum `ReserveStatus`. |
