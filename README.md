@@ -618,7 +618,7 @@ O `docker-compose.yml` é pensado para **avaliação e desenvolvimento**. Para a
 Criar o primeiro administrador em produção:
 
 ```bash
-php artisan tinker --execute="AppModelsUser::create([name=>Admin,email=>admin@hotel.com.br,password=>TROQUE-ESTA-SENHA,role=>admin]);"
+php artisan tinker --execute="AppModelsUser::create([name=>Admin,email=>admin@seuhotel.example,password=>TROQUE-ESTA-SENHA,role=>admin]);"
 ```
 
 Dados pessoais (LGPD): a API armazena nome, sobrenome, telefone e e-mail dos hóspedes apenas para a reserva;
