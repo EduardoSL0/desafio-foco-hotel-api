@@ -29,7 +29,7 @@ API REST em **Laravel 12 (PHP 8.2+)** para gestão hoteleira:
 | **Proteção do inventário** | O hoteleiro não consegue reduzir as unidades de um quarto abaixo das reservas futuras já vendidas (evita overbooking por edição). |
 | **Desempenho no Docker** | `vendor/` em volume próprio + OPcache: respostas de ~5 s caíram para ~0,1 s no Docker Desktop (Windows/macOS). |
 | **Documentação interativa guiada** (`/docs`) | Guia "como testar em 3 passos", **login com um clique** por perfil (o token é aplicado sozinho), roteiro com atalhos para as rotas principais e exemplos prontos para executar, com datas sempre válidas. |
-| **103 testes automatizados** | Cobrem importação, regras de preço, permissões, concorrência de cupom, idempotência, relatórios e a experiência do hóspede. |
+| **124 testes automatizados** + teste bruto | Cobrem importação, regras de preço, permissões, concorrência de cupom, idempotência, relatórios e a experiência do hóspede. |
 
 ---
 
@@ -675,6 +675,31 @@ Antes da entrega o projeto passou por uma revisão; os problemas encontrados e a
 | **Relatório contava quartos criados depois do período**: um quarto cadastrado hoje inflava a disponibilidade de meses passados e derrubava a ocupação histórica. | O quarto só conta no período em que existia (ou se teve diárias vendidas nele, caso dos quartos do XML, sem data de criação). |
 | **Rodar os testes dentro do container apagava o banco MySQL de desenvolvimento**: as variáveis do Docker (`DB_CONNECTION=mysql`) tinham prioridade sobre o `phpunit.xml`, e o `RefreshDatabase` recriava as tabelas reais. | `phpunit.xml` força SQLite em memória (`<env>` e `<server>` com `force="true"`) e o `TestCase` aborta se o banco não for o de teste. |
 
+### Teste bruto (fuzzing, concorrência e invasão)
+
+Além dos testes automatizados, a API foi atacada de propósito rodando no Docker com MySQL real: mais de 2.100
+requisições com dados inválidos (tipos errados, textos gigantes, SQL injection, XSS, JSON quebrado), requisições
+simultâneas, tentativas de acesso a dados de outro hotel e XMLs maliciosos no importador (XXE, "billion laughs").
+Problemas encontrados e corrigidos:
+
+| Problema | Correção |
+|---|---|
+| **10 pagamentos simultâneos de R$ 100 numa reserva de R$ 300 aceitavam R$ 400** | *Lock* da reserva durante o pagamento: o saldo lido é sempre o atual |
+| **Cancelamento simultâneo aplicado 2 vezes** (devolvia o uso do cupom em dobro) | *Lock* da reserva durante o cancelamento |
+| **Erro 500** com lista/decimal em campos de data e com lista no e-mail do login | Comparações entre datas só quando o outro campo é uma data válida (`AppSupportDateInput`) |
+| `true` e `1.5` aceitos como número inteiro (ex.: forma de pagamento `1.5` virava cartão de crédito) | Regra `integer:strict` nos campos inteiros |
+| IDs como `1'` ou `1 OR 1=1` na URL eram lidos como `1` (não era SQL injection, mas era frouxo) | Parâmetros de rota aceitam só números (404 caso contrário) |
+| Estadia de valor acima do suportado pela coluna (R$ 99 milhões × noites) gerava erro ao gravar | Validação do valor máximo antes de gravar |
+| Importador: **um registro ruim abortava a importação inteira**; diária negativa e id duplicado eram aceitos; arquivo com raiz errada era importado | Registro inválido é ignorado com aviso, o resto é importado; raiz validada |
+| Erros barrados pelo Nginx em HTML; mensagens de erro e validação em inglês | Erros do Nginx em JSON; mensagens de erro e validação em português (`lang/pt_BR`) |
+| Testes automatizados gravavam no log real da aplicação | Canais de log descartados durante os testes |
+
+Resultado final: **0 erros 500** e **0 falhas**; 20 reservas simultâneas do último quarto → 1 confirmada; cupom de uso
+único disputado por 15 → 1 uso; 13 verificações de consistência do banco (overbooking, totais, pagamentos, cupons)
+sem nenhum problema; ataques XXE e "billion laughs" bloqueados; limites de requisição bloqueando exatamente no valor
+configurado (agora ajustáveis por variáveis `RATE_LIMIT_*`).
+
+
 Validação final: o repositório foi clonado em uma pasta vazia (sem `vendor`, `.env` ou banco) e `docker compose up`
 subiu tudo sozinho — dependências, chave, migrations, importação dos XMLs — com todos os endpoints respondendo e os
-testes passando dentro do container sem alterar o banco MySQL.
+124 testes passando dentro do container sem alterar o banco MySQL.
