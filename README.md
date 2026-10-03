@@ -36,8 +36,8 @@ API REST em **Laravel 12 (PHP 8.2+)** para gestão hoteleira:
 | **E-mail de confirmação** | Enviado ao hóspede com localizador, datas, diárias e valores — só depois que a reserva é gravada, e uma falha no envio nunca desfaz a reserva. |
 | **Proteção do inventário** | O hoteleiro não consegue reduzir as unidades de um quarto abaixo das reservas futuras já vendidas (evita overbooking por edição). |
 | **Desempenho no Docker** | `vendor/` em volume próprio + OPcache: respostas de ~5 s caíram para ~0,1 s no Docker Desktop (Windows/macOS). |
-| **Documentação interativa guiada** (`/docs`) | Guia "como testar em 3 passos", **login com um clique** por perfil (o token é aplicado sozinho), roteiro com atalhos para as rotas principais e exemplos prontos para executar, com datas sempre válidas. |
-| **127 testes automatizados** + teste bruto | Cobrem importação, regras de preço, permissões, concorrência de cupom, idempotência, relatórios e a experiência do hóspede. |
+| **Documentação interativa guiada** (`/docs`) | Guia "como testar em 3 passos", **login com um clique** por perfil (o token é aplicado sozinho), roteiro com atalhos para as rotas principais e exemplos prontos para executar, com datas sempre válidas. Alternância **Guiada / Técnica**: a técnica esconde o onboarding e mostra só rotas e schemas, como um Swagger padrão. |
+| **133 testes automatizados** + teste bruto | Cobrem importação, regras de preço, permissões, concorrência de cupom, idempotência, relatórios e a experiência do hóspede. |
 
 ---
 
@@ -245,6 +245,7 @@ erDiagram
         bigint hotel_id FK
         bigint room_id FK
         bigint coupon_id FK
+        varchar code UK
         varchar external_code UK
         date check_in
         date check_out
@@ -349,6 +350,9 @@ Use o `access_token` retornado em `Authorization: Bearer <token>`. O token expir
 
 As regras ficam em `app/Policies` e nos métodos `worksAt()` / `canManageHotel()` do model `User`.
 Trocar a senha de um usuário revoga os tokens ativos dele.
+
+**Reserva de demonstração para "minha reserva":** localizador `FH7K3Q9X`, sobrenome `de Tal` (reserva 1 do XML).
+É o exemplo já preenchido no Swagger em `POST /reserves/lookup`.
 
 **Cadastrar um funcionário** (como gerente, o hotel é o do próprio gerente):
 
@@ -521,7 +525,7 @@ app/
 ├── Exceptions/                              # exceções de negócio que se renderizam como JSON
 ├── Http/
 │   ├── Controllers/Api/                     # controllers finos
-│   ├── Middleware/                          # ForceJsonResponse, LogApiRequest
+│   ├── Middleware/                          # ForceJsonResponse, LogApiRequest, Idempotency
 │   ├── Requests/                            # validação (Form Requests)
 │   └── Resources/                           # formato das respostas JSON (API Resources)
 ├── Models/
@@ -583,7 +587,7 @@ junto com `pint --test` (padrão de código) e a validação da especificação 
 | `storage/logs/api-*.log`         | acesso à API: método, rota, status, tempo (ms), usuário, IP     |
 | `storage/logs/import-*.log`      | execuções da importação: início, fim, estatísticas e avisos     |
 | `storage/logs/import-cron.log`   | saída do comando quando executado pelo scheduler                |
-| `storage/logs/laravel-*.log`     | eventos de domínio (`reserve.created`, `payment.registered`, `room.updated`, `auth.failed`...) e erros |
+| `storage/logs/laravel-*.log`     | eventos de domínio (`reserve.created`, `payment.registered`, `room.updated`, `auth.failed`...), regras de negócio recusadas (`business.rejected`, nível INFO) e erros |
 
 Os arquivos são rotacionados diariamente. O corpo das requisições **não** é logado, para não gravar dados pessoais ou senhas.
 
@@ -684,6 +688,11 @@ Antes da entrega o projeto passou por uma revisão; os problemas encontrados e a
 | **Erros 500 aleatórios no Docker**: o scheduler rodava como root e criava pastas do cache em disco sem permissão de escrita para o PHP-FPM (`www-data`); requisições cujas chaves caíam nessas pastas falhavam. Encontrado executando o projeto. | Cache no MySQL (`CACHE_STORE=database`, compartilhado entre containers), scheduler como `www-data` e logs criados com permissão compartilhada no Docker (`LOG_FILE_PERMISSION`). |
 | **Relatório contava quartos criados depois do período**: um quarto cadastrado hoje inflava a disponibilidade de meses passados e derrubava a ocupação histórica. | O quarto só conta no período em que existia (ou se teve diárias vendidas nele, caso dos quartos do XML, sem data de criação). |
 | **Rodar os testes dentro do container apagava o banco MySQL de desenvolvimento**: as variáveis do Docker (`DB_CONNECTION=mysql`) tinham prioridade sobre o `phpunit.xml`, e o `RefreshDatabase` recriava as tabelas reais. | `phpunit.xml` força SQLite em memória (`<env>` e `<server>` com `force="true"`) e o `TestCase` aborta se o banco não for o de teste. |
+| **`PUT /rooms/{id}` completo era recusado**: reenviar o próprio `hotel_id` (sem mudar de hotel) retornava 422 "Não é permitido transferir um quarto para outro hotel". Encontrado testando o CRUD a partir de um clone limpo. | `hotel_id` aceito quando é o hotel atual do quarto; outro hotel continua bloqueado. Teste de regressão incluído. |
+| **`schema.sql` (modelo para o Workbench) desatualizado**: faltava a coluna `code` (localizador), criada depois por migration. | Coluna e índice incluídos. O script foi carregado num banco vazio e comparado coluna a coluna e índice a índice com o banco gerado pelas migrations: idênticos. |
+| **Ao religar o Docker** (ex.: reiniciar o computador) os containers sobem juntos e o app rodava as migrations antes de o MySQL aceitar conexões: caía e reiniciava. | O `entrypoint` espera o MySQL responder antes de migrar. |
+| **API em 503 depois de recriar só o container `app`**: o Nginx resolvia o nome `app` uma única vez e continuava chamando o IP antigo. | Nginx usa o DNS do Docker com revalidação a cada 10 s. |
+| **No Swagger, o `Idempotency-Key` vinha preenchido com uma chave fixa**: a segunda reserva diferente testada retornava 422 ("chave já usada"), parecendo um bug. | Campo vazio por padrão, com instruções de como testar a idempotência. |
 
 ### Teste bruto (fuzzing, concorrência e invasão)
 
@@ -704,6 +713,21 @@ Problemas encontrados e corrigidos:
 | Erros barrados pelo Nginx em HTML; mensagens de erro e validação em inglês | Erros do Nginx em JSON; mensagens de erro e validação em português (`lang/pt_BR`) |
 | Testes automatizados gravavam no log real da aplicação | Canais de log descartados durante os testes |
 
+**Segunda rodada (antes da apresentação):** um script percorreu as 35 operações do `openapi.yaml` com mais de 3.700
+requisições (valores inválidos em cada campo, ids e corpos quebrados, tokens inválidos, perfis sem permissão e
+concorrência) e, no fim, conferiu a consistência do banco. Problemas encontrados e corrigidos:
+
+| Problema | Correção |
+|---|---|
+| **Pagamento de valor gigante** (`1e308`, `2^63`) estourava a conversão para centavos: gravava um pagamento de **R$ 0,00** e respondia 201 (um valor específico dava 500) | Limite de R$ 99.999.999,99 (o da coluna) em pagamentos e cupons de valor fixo |
+| Listas em filtros de texto (`?status[]=x`, `?search[]=x`, `?role[]=x`) davam 500 | Filtro textual que ignora listas (`Controller::queryText`) |
+| `hotel_id` nulo ou lista na edição de promoção e de usuário passava pela validação e quebrava no banco (500) | Validação estrita: só o hotel atual, como inteiro |
+| Disponibilidade de um quarto sem limite de período (`check_out=9999-12-31`) prendia a requisição por 30 s | Período máximo de 1 ano |
+| Erros de `abort()` (ex.: 403 do relatório) devolviam o stack trace com `APP_DEBUG` ligado, que é o ambiente do avaliador | Todo erro HTTP da API responde só `{"message": ...}` |
+| Regras de negócio recusadas (sem vaga, reserva cancelada) iam para o log como ERROR com stack trace | Registradas como INFO (`business.rejected`); ERROR fica só para falhas reais |
+| Nginx respondia 414 (URL longa) e cabeçalho grande em HTML | Também em JSON |
+| Exemplos do Swagger que falhavam ao clicar em *Execute*: quarto com `capacity: 0`, cupom com `hotel_id: 0`, usuário "admin" com hotel, "minha reserva" com localizador inexistente | Exemplos válidos e reserva de demonstração `FH7K3Q9X` |
+
 Resultado final: **0 erros 500** e **0 falhas**; 20 reservas simultâneas do último quarto → 1 confirmada; cupom de uso
 único disputado por 15 → 1 uso; 13 verificações de consistência do banco (overbooking, totais, pagamentos, cupons)
 sem nenhum problema; ataques XXE e "billion laughs" bloqueados; limites de requisição bloqueando exatamente no valor
@@ -712,4 +736,4 @@ configurado (agora ajustáveis por variáveis `RATE_LIMIT_*`).
 
 Validação final: o repositório foi clonado em uma pasta vazia (sem `vendor`, `.env` ou banco) e `docker compose up`
 subiu tudo sozinho — dependências, chave, migrations, importação dos XMLs — com todos os endpoints respondendo e os
-127 testes passando dentro do container sem alterar o banco MySQL.
+133 testes passando dentro do container sem alterar o banco MySQL.

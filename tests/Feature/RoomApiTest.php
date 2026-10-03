@@ -146,6 +146,22 @@ class RoomApiTest extends TestCase
             ->assertJsonValidationErrors('hotel_id');
     }
 
+    public function test_full_put_with_same_hotel_updates_room(): void
+    {
+        $room = Room::factory()->create(['daily_price' => 100]);
+        Sanctum::actingAs(User::factory()->admin()->create());
+
+        $this->putJson(self::API."/rooms/{$room->id}", [
+            'hotel_id' => $room->hotel_id,
+            'name' => 'Standard Casal',
+            'capacity' => 2,
+            'inventory' => $room->inventory,
+            'daily_price' => 150,
+        ])->assertOk()->assertJsonPath('data.daily_price', 150.0);
+
+        $this->assertDatabaseHas('rooms', ['id' => $room->id, 'hotel_id' => $room->hotel_id, 'daily_price' => 150]);
+    }
+
     public function test_deletes_room_softly(): void
     {
         $room = Room::factory()->create();

@@ -4,6 +4,7 @@ namespace App\Exceptions;
 
 use Exception;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Violação de regra de negócio. O Laravel chama render() automaticamente,
@@ -16,6 +17,15 @@ abstract class BusinessException extends Exception
     public function status(): int
     {
         return $this->status;
+    }
+
+    /**
+     * Regra de negócio recusada é resposta esperada (409/422), não falha do sistema:
+     * vai para o log como INFO, sem stack trace, para não poluir os erros reais.
+     */
+    public function report(): void
+    {
+        Log::info('business.rejected', ['rule' => class_basename($this), 'message' => $this->getMessage(), 'status' => $this->status]);
     }
 
     public function render(): JsonResponse

@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
     <style>
         :root {
-            --navy: #0f2a3d; --navy-2: #173b54; --accent: #0e8f7e; --gold: #c99a3b;
+            --navy: #1a1f2e; --navy-2: #242b3d; --accent: #2c6e8f; --gold: #c99a3b; --soft: #b8c0cc;
             --bg: #f4f6f8; --line: #e3e8ed; --muted: #5f6f7c; --text: #1d2730;
             --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
         }
@@ -19,26 +19,35 @@
         .wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px; }
 
         /* Cabeçalho */
-        .head { background: linear-gradient(135deg, var(--navy), var(--navy-2) 70%, #1f5a6e); color: #fff; }
+        .head { background: linear-gradient(180deg, var(--navy), var(--navy-2)); color: #fff; }
         .head__bar { display: flex; align-items: center; gap: 14px; padding: 18px 0 6px; flex-wrap: wrap; }
         .logo { width: 40px; height: 40px; border-radius: 10px; background: var(--gold); color: var(--navy); display: grid; place-items: center; font-weight: 800; font-size: 1.2rem; }
         .head h1 { font-size: 1.6rem; margin: 0; }
         .pill { font-size: .72rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,.15); }
-        .head__links { margin-left: auto; display: flex; gap: 16px; font-size: .9rem; }
-        .head__links a { color: #cfe0ea; text-decoration: none; }
+        .head__links { margin-left: auto; display: flex; align-items: center; gap: 16px; font-size: .9rem; flex-wrap: wrap; }
+        .head__links a { color: var(--soft); text-decoration: none; }
         .head__links a:hover { color: #fff; }
-        .head p.lead { color: #cfe0ea; margin: 6px 0 22px 54px; max-width: 760px; line-height: 1.5; }
+        .head p.lead { color: var(--soft); margin: 6px 0 18px 54px; max-width: 760px; line-height: 1.5; }
+        body.tech .head p.lead { margin-bottom: 14px; }
 
-        /* Passos */
-        .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; padding-bottom: 26px; }
-        .step { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); border-radius: 12px; padding: 16px; }
-        .step b { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--gold); color: var(--navy); font-size: .85rem; margin-bottom: 8px; }
-        .step h3 { margin: 0 0 4px; font-size: 1rem; }
-        .step p { margin: 0; color: #cfe0ea; font-size: .88rem; line-height: 1.45; }
+        /* Alternância de visualização */
+        .view { display: inline-flex; align-items: stretch; border: 1px solid rgba(255,255,255,.22); border-radius: 6px; overflow: hidden; font-size: .8rem; }
+        .view span { padding: 5px 10px; color: var(--soft); }
+        .view button { font: inherit; border: 0; border-left: 1px solid rgba(255,255,255,.18); background: transparent; color: var(--soft); padding: 5px 12px; cursor: pointer; }
+        .view button:hover { color: #fff; }
+        .view button[aria-pressed="true"] { background: rgba(255,255,255,.14); color: #fff; }
+        body.tech .guided { display: none; }
+
+        /* Passos (compactos, para não competir com a lista de rotas) */
+        .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding-bottom: 18px; }
+        .step { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.10); border-radius: 8px; padding: 10px 12px; }
+        .step h3 { margin: 0 0 2px; font-size: .88rem; display: flex; align-items: center; gap: 8px; }
+        .step b { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; border: 1px solid rgba(255,255,255,.35); font-size: .72rem; }
+        .step p { margin: 0; color: var(--soft); font-size: .8rem; line-height: 1.4; }
         .step code { background: rgba(255,255,255,.14); color: #fff; }
 
         /* Cartões */
-        .grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px; margin: 22px auto 6px; }
+        .grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px; margin: 22px auto 6px; align-items: start; }
         .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; box-shadow: 0 1px 2px rgba(15,42,61,.05), 0 4px 14px rgba(15,42,61,.05); }
         .card h2 { font-size: 1.05rem; margin: 0 0 4px; }
         .card .sub { color: var(--muted); font-size: .86rem; margin: 0 0 12px; }
@@ -47,19 +56,25 @@
         table.users td:last-child { text-align: right; }
         .role { font-weight: 700; }
         .muted { color: var(--muted); }
-        .btn { font: inherit; font-size: .85rem; font-weight: 600; border: 0; border-radius: 8px; padding: 7px 14px; cursor: pointer; background: var(--accent); color: #fff; white-space: nowrap; }
-        .btn:hover { filter: brightness(.93); }
-        .btn--ghost { background: #fff; color: var(--text); border: 1px solid #cfd8e0; }
+        .btn { font: inherit; font-size: .85rem; font-weight: 600; border: 1px solid var(--accent); border-radius: 6px; padding: 6px 14px; cursor: pointer; background: transparent; color: var(--accent); white-space: nowrap; }
+        .btn:hover { background: var(--accent); color: #fff; }
+        .btn--ghost { background: #fff; color: var(--text); border-color: #cfd8e0; }
+        .btn--ghost:hover { background: #f1f3f6; color: var(--text); }
         .btn:disabled { opacity: .6; cursor: wait; }
         .auth { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: .88rem; background: #f6f8fa; }
         .auth.ok { background: #e6f4ec; color: #22663f; }
         .auth.err { background: #fdf0ee; color: #b03a2e; }
         .auth .btn { margin-left: auto; flex: none; }
         .auth__msg { flex: 1; line-height: 1.45; }
+        details.card > summary { cursor: pointer; list-style: none; }
+        details.card > summary::-webkit-details-marker { display: none; }
+        details.card > summary h2::after { content: "▸"; float: right; color: var(--muted); transition: transform .15s; }
+        details.card[open] > summary h2::after { transform: rotate(90deg); }
+        details.card:not([open]) > summary .sub { margin-bottom: 0; }
         ol.tour { margin: 0; padding: 0; list-style: none; counter-reset: t; }
         ol.tour li { counter-increment: t; display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: .9rem; }
         ol.tour li:first-child { border-top: 0; }
-        ol.tour li::before { content: counter(t); flex: none; width: 22px; height: 22px; border-radius: 50%; background: #e6f1ef; color: var(--accent); font-weight: 700; font-size: .78rem; display: grid; place-items: center; }
+        ol.tour li::before { content: counter(t); flex: none; width: 22px; height: 22px; border-radius: 50%; background: #eef1f5; color: var(--muted); font-weight: 700; font-size: .78rem; display: grid; place-items: center; }
         .m { flex: none; font-size: .68rem; font-weight: 800; color: #fff; border-radius: 4px; padding: 3px 6px; min-width: 44px; text-align: center; }
         .m.get { background: #3b82c4; } .m.post { background: #2f9e6e; }
         ol.tour a { text-decoration: none; color: var(--text); font-weight: 600; }
@@ -82,6 +97,7 @@
         .swagger-ui .btn.authorize { border-radius: 8px; }
         .swagger-ui .btn.execute { background: var(--accent); border-color: var(--accent); border-radius: 8px; }
         .swagger-ui section.models { display: none; }
+        body.tech .swagger-ui section.models { display: block; border-radius: 12px; border-color: var(--line); background: #fff; }
         .footer { text-align: center; color: var(--muted); font-size: .82rem; padding: 10px 20px 30px; }
 
         @media (max-width: 900px) {
@@ -102,6 +118,11 @@
             <nav class="head__links">
                 <a href="openapi.yaml" target="_blank">openapi.yaml</a>
                 <a href="/up" target="_blank">status</a>
+                <div class="view" role="group" aria-label="Visualização">
+                    <span>Visualização:</span>
+                    <button type="button" data-view="guided" aria-pressed="true">Guiada</button>
+                    <button type="button" data-view="tech" aria-pressed="false">Técnica</button>
+                </div>
             </nav>
         </div>
         <p class="lead">
@@ -109,18 +130,18 @@
             a partir de XML (via cron), CRUD de quartos e motor de reservas com disponibilidade, promoções,
             cupons, taxas e pagamentos. Todas as respostas são em JSON.
         </p>
-        <div class="steps">
-            <div class="step"><b>1</b><h3>Entre com um usuário de teste</h3>
+        <div class="steps guided">
+            <div class="step"><h3><b>1</b>Selecione um perfil de teste</h3>
                 <p>Clique em <strong>Entrar</strong> ao lado de um perfil abaixo. O token é aplicado automaticamente em todas as rotas.</p></div>
-            <div class="step"><b>2</b><h3>Escolha uma rota</h3>
+            <div class="step"><h3><b>2</b>Escolha uma rota</h3>
                 <p>Use o roteiro sugerido ou a busca. O modo <em>Try it out</em> já vem ligado e os exemplos já vêm preenchidos.</p></div>
-            <div class="step"><b>3</b><h3>Clique em Execute</h3>
+            <div class="step"><h3><b>3</b>Execute a requisição</h3>
                 <p>A resposta real aparece logo abaixo. Rotas com 🔒 exigem login; as demais são públicas (motor de reservas).</p></div>
         </div>
     </div>
 </header>
 
-<div class="wrap">
+<div class="wrap guided">
     <div class="grid">
         <section class="card">
             <h2>Usuários de teste</h2>
@@ -128,20 +149,20 @@
             <table class="users">
                 <tr><td><span class="role">Admin</span><br><span class="muted">admin@foco.test</span></td>
                     <td class="muted">Acesso total a todos os hotéis</td>
-                    <td><button class="btn" data-login="admin@foco.test">Entrar</button></td></tr>
+                    <td><button class="btn" title="Clique para preencher o token automaticamente" data-login="admin@foco.test">Entrar</button></td></tr>
                 <tr><td><span class="role">Gerente</span><br><span class="muted">gerente@foco.test</span></td>
                     <td class="muted">Hotel Foco Prime: quartos, promoções, cupons, equipe e relatório</td>
-                    <td><button class="btn" data-login="gerente@foco.test">Entrar</button></td></tr>
+                    <td><button class="btn" title="Clique para preencher o token automaticamente" data-login="gerente@foco.test">Entrar</button></td></tr>
                 <tr><td><span class="role">Recepção</span><br><span class="muted">recepcao@foco.test</span></td>
                     <td class="muted">Hotel Foco Prime: consulta reservas e registra pagamentos</td>
-                    <td><button class="btn" data-login="recepcao@foco.test">Entrar</button></td></tr>
+                    <td><button class="btn" title="Clique para preencher o token automaticamente" data-login="recepcao@foco.test">Entrar</button></td></tr>
             </table>
             <div class="auth" id="auth-status">Você ainda não entrou — apenas as rotas públicas vão funcionar.</div>
         </section>
 
-        <section class="card">
-            <h2>Roteiro sugerido</h2>
-            <p class="sub">Clique para abrir a rota já pronta para executar.</p>
+        <details class="card" id="tour">
+            <summary><h2>Roteiro sugerido</h2>
+            <p class="sub">5 rotas principais, prontas para executar.</p></summary>
             <ol class="tour">
                 <li><span class="m get">GET</span><a href="#" data-op="Reservas/getAvailability">/availability<small>Quartos livres no período, com preço final calculado</small></a></li>
                 <li><span class="m post">POST</span><a href="#" data-op="Reservas/postReserves">/reserves<small>Criar uma reserva (retorna o localizador)</small></a></li>
@@ -149,7 +170,7 @@
                 <li><span class="m post">POST</span><a href="#" data-op="Quartos/postRooms">/rooms <span class="lock">🔒</span><small>Cadastrar um quarto (admin ou gerente)</small></a></li>
                 <li><span class="m get">GET</span><a href="#" data-op="Relatórios/getHotelsHotelReport">/hotels/{hotel}/report <span class="lock">🔒</span><small>Ocupação, ADR e RevPAR do hotel</small></a></li>
             </ol>
-        </section>
+        </details>
     </div>
 </div>
 
@@ -168,7 +189,7 @@
     function showAuth(user) {
         status.className = 'auth ok';
         status.innerHTML = `<span class="auth__msg">✓ Autenticado como <strong>${esc(user.name)}</strong> (${esc(ROLES[user.role] || user.role)}).`
-            + ' As rotas 🔒 já enviam o token — escolha uma rota no roteiro ao lado e clique em <strong>Execute</strong>.</span>'
+            + ' As rotas 🔒 já enviam o token — escolha uma rota e execute a requisição.</span>'
             + '<button class="btn btn--ghost" id="logout">Sair</button>';
         document.getElementById('logout').onclick = () => {
             ui.authActions.logout(['bearerAuth']);
@@ -197,7 +218,7 @@
         filter: true,
         displayRequestDuration: true,
         docExpansion: 'list',
-        defaultModelsExpandDepth: -1,
+        defaultModelsExpandDepth: 0, // schemas recolhidos; só aparecem na visualização Técnica
         syntaxHighlight: { activated: true, theme: 'agate' },
         requestInterceptor: (req) => { req.headers.Accept = 'application/json'; return req; },
         // Login feito pelo próprio Swagger também aplica o token automaticamente.
@@ -209,7 +230,7 @@
         },
     });
 
-    fetch('openapi.yaml')
+    fetch('openapi.yaml', { cache: 'no-cache' }) // sempre revalida: evita especificação antiga em cache
         .then((r) => r.text())
         .then((yaml) => ui.specActions.updateSpec(Object.entries(DATES).reduce((t, [from, to]) => t.split(from).join(to), yaml)));
 
@@ -249,6 +270,20 @@
             input.placeholder = 'Buscar seção (ex.: Reservas, Quartos, Relatórios)';
         }
     }).observe(document.getElementById('swagger-ui'), { childList: true, subtree: true });
+
+    // Visualização Guiada (passos, perfis e roteiro) ou Técnica (só rotas e schemas, estilo Swagger padrão).
+    const setView = (v) => {
+        document.body.classList.toggle('tech', v === 'tech');
+        document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === v)));
+        try { localStorage.setItem('foco_docs_view', v); } catch (_) { /* preferência opcional */ }
+    };
+    document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
+    let view = 'guided';
+    try { view = localStorage.getItem('foco_docs_view') || view; } catch (_) { /* preferência opcional */ }
+    setView(view);
+
+    // Roteiro aberto quando cabe ao lado dos perfis; recolhido em telas estreitas.
+    if (window.matchMedia('(min-width: 901px)').matches) document.getElementById('tour').open = true;
 
     const saved = sessionStorage.getItem('foco_docs_user');
     if (saved && localStorage.getItem('authorized')) showAuth(JSON.parse(saved));

@@ -24,7 +24,10 @@ class PromotionRequest extends FormRequest
         $required = $creating ? 'required' : 'sometimes';
 
         return [
-            'hotel_id' => $creating ? ['required', 'integer:strict', 'exists:hotels,id'] : ['prohibited'],
+            // Na edição o hotel pode ser reenviado (PUT completo), mas não trocado.
+            'hotel_id' => $creating
+                ? ['required', 'integer:strict', 'exists:hotels,id']
+                : ['sometimes', 'required', 'integer:strict', Rule::in([$promotion->hotel_id])],
             // O quarto (opcional) precisa pertencer ao hotel da promoção.
             'room_id' => ['nullable', 'integer:strict', Rule::exists('rooms', 'id')->where('hotel_id', $hotelId)->whereNull('deleted_at')],
             'name' => [$required, 'string', 'max:120'],
@@ -51,7 +54,11 @@ class PromotionRequest extends FormRequest
     {
         return [
             'room_id.exists' => 'O quarto informado não pertence ao hotel da promoção.',
-            'hotel_id.prohibited' => 'Não é permitido transferir uma promoção para outro hotel.',
+            ...($this->route('promotion') === null ? [] : [
+                'hotel_id.required' => 'Não é permitido transferir uma promoção para outro hotel.',
+                'hotel_id.integer' => 'Não é permitido transferir uma promoção para outro hotel.',
+                'hotel_id.in' => 'Não é permitido transferir uma promoção para outro hotel.',
+            ]),
         ];
     }
 }

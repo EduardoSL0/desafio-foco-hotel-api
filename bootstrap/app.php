@@ -9,6 +9,7 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -63,6 +64,16 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (MethodNotAllowedHttpException $e, Request $request) {
             if ($request->is('api/*')) {
                 return response()->json(['message' => 'Método HTTP não permitido para esta rota.'], 405, $e->getHeaders());
+            }
+        });
+
+        // Demais erros HTTP (ex.: abort(403, '...') nos controllers): só a mensagem, sem stack trace mesmo com APP_DEBUG.
+        $exceptions->render(function (HttpExceptionInterface $e, Request $request) {
+            if ($request->is('api/*')) {
+                $fallback = [400 => 'Requisição inválida.', 403 => 'Você não tem permissão para esta ação.', 413 => 'Requisição muito grande (máximo de 10 MB).'];
+                $message = $e->getMessage() !== '' ? $e->getMessage() : ($fallback[$e->getStatusCode()] ?? 'Não foi possível processar a requisição.');
+
+                return response()->json(['message' => $message], $e->getStatusCode(), $e->getHeaders());
             }
         });
     })->create();

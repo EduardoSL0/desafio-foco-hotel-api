@@ -23,7 +23,7 @@ class StoreReserveRequest extends QuoteReserveRequest
             'guests.*.email' => ['nullable', 'email', 'max:255'],
             'payments' => ['sometimes', 'array', 'max:10'],
             'payments.*.method' => ['bail', 'required', 'integer:strict', Rule::enum(PaymentMethod::class)],
-            'payments.*.value' => ['required', 'numeric', 'min:0.01'],
+            'payments.*.value' => ['required', 'numeric', 'min:0.01', 'max:99999999.99'],
             'payments.*.installments' => ['sometimes', 'integer:strict', "between:1,{$maxInstallments}"],
         ];
     }

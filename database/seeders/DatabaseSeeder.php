@@ -7,6 +7,7 @@ use App\Enums\UserRole;
 use App\Models\Coupon;
 use App\Models\Hotel;
 use App\Models\Promotion;
+use App\Models\Reserve;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Artisan;
@@ -76,5 +77,11 @@ class DatabaseSeeder extends Seeder
             'type' => DiscountType::Percent,
             'value' => 10,
         ]);
+
+        // Localizador conhecido na reserva 1 do XML (Fulaninho de Tal): o exemplo de
+        // "minha reserva" da documentação (FH7K3Q9X + "de Tal") funciona de primeira.
+        if (! Reserve::query()->where('code', 'FH7K3Q9X')->exists()) {
+            Reserve::query()->where('external_code', '1')->update(['code' => 'FH7K3Q9X']);
+        }
     }
 }

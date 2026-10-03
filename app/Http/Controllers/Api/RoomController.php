@@ -28,7 +28,7 @@ class RoomController extends Controller
         $rooms = Room::query()
             ->with('hotel')
             ->when($request->integer('hotel_id'), fn ($q, int $hotelId) => $q->where('hotel_id', $hotelId))
-            ->when($request->string('search')->trim()->value(), fn ($q, string $s) => $q->where('name', 'like', "%{$s}%"))
+            ->when($this->queryText($request, 'search'), fn ($q, string $s) => $q->where('name', 'like', "%{$s}%"))
             ->orderBy('id')
             ->paginate($perPage)
             ->withQueryString();

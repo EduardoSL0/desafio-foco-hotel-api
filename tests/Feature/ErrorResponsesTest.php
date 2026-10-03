@@ -62,4 +62,18 @@ class ErrorResponsesTest extends TestCase
 
         $this->assertStringStartsWith('Muitas requisições. Tente novamente em', $response->json('message'));
     }
+
+    /** abort() nos controllers devolvia o stack trace completo com APP_DEBUG ligado (ambiente do avaliador). */
+    public function test_http_errors_from_abort_have_only_the_message_even_in_debug(): void
+    {
+        config(['app.debug' => true]);
+        $hotel = Hotel::factory()->create();
+        Sanctum::actingAs(User::factory()->receptionist($hotel)->create());
+
+        $this->getJson(self::API."/hotels/{$hotel->id}/report")
+            ->assertForbidden()
+            ->assertExactJson(['message' => 'Apenas administradores e gerentes do hotel acessam o relatório.']);
+
+        $this->getJson(self::API.'/users')->assertForbidden()->assertExactJson(['message' => 'Sem permissão para listar usuários.']);
+    }
 }

@@ -19,7 +19,7 @@ class StorePaymentRequest extends FormRequest
 
         return [
             'method' => ['bail', 'required', 'integer:strict', Rule::enum(PaymentMethod::class)],
-            'value' => ['required', 'numeric', 'min:0.01'],
+            'value' => ['required', 'numeric', 'min:0.01', 'max:99999999.99'],
             'installments' => ['sometimes', 'integer:strict', "between:1,{$maxInstallments}"],
         ];
     }

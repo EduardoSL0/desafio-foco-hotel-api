@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Hotel;
+use App\Models\Promotion;
 use App\Models\Reserve;
 use App\Models\Room;
 use App\Models\User;
@@ -88,5 +89,63 @@ class InputHardeningTest extends TestCase
         foreach (["1'", '1 OR 1=1', 'abc', '-1', '1.0'] as $id) {
             $this->getJson(self::API.'/rooms/'.rawurlencode($id))->assertNotFound();
         }
+    }
+
+    /** Teste pesado de 03/10: listas em filtros de texto da query string geravam "Array to string conversion" (500). */
+    public function test_array_filters_in_query_strings_are_ignored(): void
+    {
+        Sanctum::actingAs(User::factory()->admin()->create());
+
+        $this->getJson(self::API.'/rooms?search[]=x')->assertOk();
+        $this->getJson(self::API.'/reserves?status[]=x')->assertOk();
+        $this->getJson(self::API.'/users?role[]=x')->assertOk();
+    }
+
+    /** hotel_id nulo/lista na edição passava pela validação e quebrava no banco (500). */
+    public function test_invalid_hotel_id_on_updates_returns_422(): void
+    {
+        $hotel = Hotel::factory()->create();
+        $room = Room::factory()->create(['hotel_id' => $hotel->id]);
+        $promotion = Promotion::factory()->create(['hotel_id' => $hotel->id]);
+        $user = User::factory()->receptionist($hotel)->create();
+        Sanctum::actingAs(User::factory()->admin()->create());
+
+        foreach ([null, '', [], true, (string) $hotel->id] as $value) {
+            $this->patchJson(self::API."/rooms/{$room->id}", ['hotel_id' => $value])->assertUnprocessable()->assertJsonValidationErrors('hotel_id');
+            $this->patchJson(self::API."/promotions/{$promotion->id}", ['hotel_id' => $value])->assertUnprocessable()->assertJsonValidationErrors('hotel_id');
+        }
+
+        $this->patchJson(self::API."/promotions/{$promotion->id}", ['hotel_id' => $hotel->id, 'discount_percent' => 30])->assertOk();
+        $this->patchJson(self::API."/users/{$user->id}", ['hotel_id' => null])->assertUnprocessable()->assertJsonValidationErrors('hotel_id');
+        $this->assertDatabaseHas('users', ['id' => $user->id, 'hotel_id' => $hotel->id]);
+    }
+
+    /** A disponibilidade é calculada noite a noite: um período até 9999 travava a requisição por 30 s. */
+    public function test_room_availability_period_is_limited_to_one_year(): void
+    {
+        $room = Room::factory()->create();
+        $from = now()->addDay()->toDateString();
+
+        $this->getJson(self::API."/rooms/{$room->id}/availability?check_in={$from}&check_out=9999-12-31")
+            ->assertUnprocessable()->assertJsonValidationErrors('check_out');
+        $this->getJson(self::API."/rooms/{$room->id}/availability?check_in=1900-01-01&check_out={$from}")
+            ->assertUnprocessable()->assertJsonValidationErrors('check_out');
+        $this->getJson(self::API."/rooms/{$room->id}/availability?check_in={$from}&check_out=".now()->addDays(30)->toDateString())->assertOk();
+    }
+
+    /** Valores gigantes estouravam a conversão para centavos: pagamento de R$ 0,00 gravado com 201 (ou erro 500). */
+    public function test_huge_money_values_are_rejected(): void
+    {
+        $reserve = Reserve::factory()->create();
+        Sanctum::actingAs(User::factory()->admin()->create());
+
+        foreach ([1e308, 9223372036854775808, '1e309', 92233720368547758.07] as $value) {
+            $this->postJson(self::API."/reserves/{$reserve->id}/payments", ['method' => 3, 'value' => $value])
+                ->assertUnprocessable()->assertJsonValidationErrors('value');
+            $this->postJson(self::API.'/coupons', ['code' => 'GIGANTE', 'type' => 'fixed', 'value' => $value])
+                ->assertUnprocessable()->assertJsonValidationErrors('value');
+        }
+
+        $this->assertDatabaseCount('payments', 0);
     }
 }

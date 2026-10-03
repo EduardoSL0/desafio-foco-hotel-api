@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class UpdateRoomRequest extends FormRequest
 {
@@ -14,7 +15,8 @@ class UpdateRoomRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'hotel_id' => ['prohibited'],
+            // Um PUT completo reenvia o hotel atual: aceito se for o mesmo; outro hotel é transferência (proibida).
+            'hotel_id' => ['sometimes', 'required', 'integer:strict', Rule::in([$this->route('room')->hotel_id])],
             'name' => ['sometimes', 'required', 'string', 'max:120'],
             'description' => ['sometimes', 'nullable', 'string', 'max:2000'],
             'capacity' => ['sometimes', 'integer:strict', 'between:1,20'],
@@ -25,8 +27,8 @@ class UpdateRoomRequest extends FormRequest
 
     public function messages(): array
     {
-        return [
-            'hotel_id.prohibited' => 'Não é permitido transferir um quarto para outro hotel.',
-        ];
+        $transfer = 'Não é permitido transferir um quarto para outro hotel.';
+
+        return ['hotel_id.required' => $transfer, 'hotel_id.integer' => $transfer, 'hotel_id.in' => $transfer];
     }
 }

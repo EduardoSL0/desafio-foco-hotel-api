@@ -25,7 +25,8 @@ class UpdateUserRequest extends FormRequest
             'password' => ['sometimes', 'required', 'string', Password::min(8)->letters()->numbers()],
             'role' => ['sometimes', 'required', Rule::enum(UserRole::class)],
             'hotel_id' => [
-                Rule::requiredIf(fn () => $role !== UserRole::Admin->value && $target->hotel_id === null && ! $this->has('hotel_id')),
+                // Gerente/recepção sempre têm hotel: obrigatório se enviado (null não vale) ou se o usuário ainda não tem.
+                Rule::requiredIf(fn () => $role !== UserRole::Admin->value && ($this->has('hotel_id') || $target->hotel_id === null)),
                 Rule::prohibitedIf(fn () => $role === UserRole::Admin->value && $this->filled('hotel_id')),
                 'nullable', 'integer:strict', 'exists:hotels,id',
             ],

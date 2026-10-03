@@ -27,7 +27,7 @@ class UserController extends Controller
         $users = User::query()
             ->when(! $actor->isAdmin(), fn ($q) => $q->where('hotel_id', $actor->hotel_id))
             ->when($request->integer('hotel_id'), fn ($q, int $id) => $q->where('hotel_id', $id))
-            ->when(UserRole::tryFrom($request->string('role')->value()), fn ($q, UserRole $r) => $q->where('role', $r))
+            ->when(UserRole::tryFrom($this->queryText($request, 'role')), fn ($q, UserRole $r) => $q->where('role', $r))
             ->orderBy('name')
             ->paginate(max(1, min($request->integer('per_page', 15), 100)))
             ->withQueryString();

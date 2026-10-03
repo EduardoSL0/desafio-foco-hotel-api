@@ -293,8 +293,8 @@ paths:
               type: object
               required: [code, last_name]
               properties:
-                code: { type: string, minLength: 8, maxLength: 8, example: FH7K3Q9X }
-                last_name: { type: string, example: Souza }
+                code: { type: string, minLength: 8, maxLength: 8, example: FH7K3Q9X, description: "FH7K3Q9X é a reserva 1 do XML (dados de demonstração)" }
+                last_name: { type: string, example: de Tal }
       responses:
         "200":
           description: Reserva encontrada
@@ -358,8 +358,11 @@ paths:
         - name: Idempotency-Key
           in: header
           required: false
-          description: Chave única por tentativa; reenvios com a mesma chave devolvem a resposta original sem duplicar.
-          schema: { type: string, minLength: 8, maxLength: 100, example: 7f1c2b9e-reserva-maria }
+          description: |
+            Opcional. Chave única por tentativa: reenviar a **mesma chave com o mesmo corpo** devolve a resposta original
+            (cabeçalho `Idempotent-Replayed: true`) sem duplicar; a mesma chave com outro corpo retorna 422.
+            Vale por 24 h. Para testar, informe uma chave nova (ex.: `teste-001`) e execute duas vezes.
+          schema: { type: string, minLength: 8, maxLength: 100 }
       tags: [Reservas]
       summary: Cria uma reserva
       description: |
@@ -450,8 +453,11 @@ paths:
         - name: Idempotency-Key
           in: header
           required: false
-          description: Chave única por tentativa; reenvios com a mesma chave devolvem a resposta original sem duplicar.
-          schema: { type: string, minLength: 8, maxLength: 100, example: 7f1c2b9e-reserva-maria }
+          description: |
+            Opcional. Chave única por tentativa: reenviar a **mesma chave com o mesmo corpo** devolve a resposta original
+            (cabeçalho `Idempotent-Replayed: true`) sem duplicar; a mesma chave com outro corpo retorna 422.
+            Vale por 24 h. Para testar, informe uma chave nova (ex.: `teste-001`) e execute duas vezes.
+          schema: { type: string, minLength: 8, maxLength: 100 }
       tags: [Pagamentos]
       summary: Registra um pagamento
       description: |
@@ -659,7 +665,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/PromotionInput" }
+            schema: { $ref: "#/components/schemas/PromotionUpdate" }
       responses:
         "200": { description: Atualizada }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -739,7 +745,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/UserInput" }
+            schema: { $ref: "#/components/schemas/UserUpdate" }
       responses:
         "200": { description: Atualizado }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -819,12 +825,22 @@ components:
       required: [hotel_id, name, discount_percent, starts_at, ends_at]
       properties:
         hotel_id: { type: integer, example: 1 }
-        room_id: { type: integer, nullable: true }
+        room_id: { type: integer, nullable: true, example: null, description: "Opcional: só um quarto do hotel. Vazio = hotel inteiro" }
         name: { type: string, example: Feriado }
         discount_percent: { type: number, minimum: 0.01, maximum: 100, example: 20 }
         starts_at: { type: string, format: date, example: "2027-03-20" }
         ends_at: { type: string, format: date, example: "2027-03-31" }
-        active: { type: boolean, default: true }
+        active: { type: boolean, default: true, example: true }
+
+    PromotionUpdate:
+      type: object
+      description: Campos parciais. O hotel_id pode ser reenviado, mas não trocado.
+      properties:
+        name: { type: string, example: Feriado prolongado }
+        discount_percent: { type: number, minimum: 0.01, maximum: 100, example: 25 }
+        starts_at: { type: string, format: date, example: "2027-03-20" }
+        ends_at: { type: string, format: date, example: "2027-03-31" }
+        active: { type: boolean, example: true }
 
     UserInput:
       type: object
@@ -833,8 +849,18 @@ components:
         name: { type: string, example: Ana Recepção }
         email: { type: string, format: email, example: ana@foco.test }
         password: { type: string, format: password, minLength: 8, example: senhaForte123 }
-        role: { type: string, enum: [admin, manager, receptionist] }
-        hotel_id: { type: integer, nullable: true, description: "Obrigatório para manager/receptionist; proibido para admin" }
+        role: { type: string, enum: [admin, manager, receptionist], example: receptionist }
+        hotel_id: { type: integer, nullable: true, example: 1, description: "Obrigatório para manager/receptionist; proibido para admin" }
+
+    UserUpdate:
+      type: object
+      description: Campos parciais. Trocar a senha revoga os tokens ativos do usuário.
+      properties:
+        name: { type: string, example: Ana Souza }
+        email: { type: string, format: email, example: ana.souza@foco.test }
+        password: { type: string, format: password, minLength: 8, example: novaSenha456 }
+        role: { type: string, enum: [admin, manager, receptionist], example: receptionist }
+        hotel_id: { type: integer, nullable: true, example: 1, description: "Obrigatório para manager/receptionist; proibido para admin" }
 
     SearchResult:
       type: object
@@ -954,12 +980,13 @@ components:
 
     RoomUpdate:
       type: object
+      description: Campos parciais no PATCH; no PUT, envie o quarto completo. O hotel_id pode ser reenviado, mas não trocado.
       properties:
-        name: { type: string }
-        description: { type: string, nullable: true }
-        capacity: { type: integer }
-        inventory: { type: integer }
-        daily_price: { type: number, nullable: true }
+        name: { type: string, example: Standard Casal }
+        description: { type: string, nullable: true, example: "Cama de casal, ar-condicionado e varanda" }
+        capacity: { type: integer, minimum: 1, maximum: 20, example: 2 }
+        inventory: { type: integer, minimum: 1, maximum: 1000, example: 10 }
+        daily_price: { type: number, nullable: true, example: 210 }
 
     GuestInput:
       type: object
@@ -1113,11 +1140,11 @@ components:
       type: object
       required: [code, type, value]
       properties:
-        hotel_id: { type: integer, nullable: true, description: Nulo = cupom global (somente admin) }
+        hotel_id: { type: integer, nullable: true, example: 1, description: Nulo = cupom global (somente admin) }
         code: { type: string, example: VERAO2030 }
-        type: { type: string, enum: [percent, fixed] }
+        type: { type: string, enum: [percent, fixed], example: percent }
         value: { type: number, example: 15 }
-        valid_from: { type: string, format: date }
-        valid_until: { type: string, format: date }
-        max_uses: { type: integer }
+        valid_from: { type: string, format: date, example: "2027-03-10" }
+        valid_until: { type: string, format: date, example: "2027-03-31" }
+        max_uses: { type: integer, minimum: 1, nullable: true, example: 100, description: Vazio = ilimitado }
         active: { type: boolean, default: true }

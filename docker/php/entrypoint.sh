@@ -20,6 +20,17 @@ if [ "${CONTAINER_ROLE:-app}" = "app" ]; then
         php artisan key:generate --force
     fi
 
+    # Ao religar o Docker os containers sobem juntos (o depends_on só vale no "up"): espera o MySQL aceitar conexões.
+    if [ "${DB_CONNECTION:-}" = "mysql" ]; then
+        tries=0
+        until php -r 'try { new PDO("mysql:host=".getenv("DB_HOST").";port=".getenv("DB_PORT"), getenv("DB_USERNAME"), getenv("DB_PASSWORD")); } catch (Throwable $e) { exit(1); }'; do
+            tries=$((tries + 1))
+            [ "$tries" -ge 40 ] && break
+            echo "Aguardando o MySQL..."
+            sleep 3
+        done
+    fi
+
     php artisan migrate --force
 
     if [ "${SEED_ON_START:-true}" = "true" ]; then

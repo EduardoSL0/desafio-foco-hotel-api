@@ -126,6 +126,7 @@ CREATE TABLE promotions (
 
 CREATE TABLE reserves (
     id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    code          VARCHAR(12)     NULL COMMENT 'Localizador da reserva (ex.: FH7K3Q9X), usado em "minha reserva"',
     hotel_id      BIGINT UNSIGNED NOT NULL,
     room_id       BIGINT UNSIGNED NOT NULL,
     coupon_id     BIGINT UNSIGNED NULL,
@@ -141,6 +142,7 @@ CREATE TABLE reserves (
     created_at    TIMESTAMP       NULL,
     updated_at    TIMESTAMP       NULL,
     PRIMARY KEY (id),
+    UNIQUE KEY reserves_code_unique (code),
     UNIQUE KEY reserves_external_code_unique (external_code),
     KEY reserves_room_id_check_in_check_out_index (room_id, check_in, check_out),
     KEY reserves_status_index (status),
