@@ -2,6 +2,14 @@
 
 [![CI](https://github.com/EduardoSL0/desafio-foco-hotel-api/actions/workflows/ci.yml/badge.svg)](https://github.com/EduardoSL0/desafio-foco-hotel-api/actions/workflows/ci.yml)
 
+> **Para avaliar em 2 minutos**
+> 1. `docker compose up -d --build` — instala tudo, cria o banco e importa os XMLs (≈ 1 a 2 min na primeira vez).
+> 2. Abra **http://localhost:8080** — documentação interativa (Swagger).
+> 3. Clique em **Entrar** ao lado de um usuário de teste e use o **Roteiro sugerido** para executar as rotas principais.
+> 4. Testes: `docker compose exec app php artisan test` · Importação manual: `docker compose exec app php artisan import:xml`.
+>
+> Requisitos do desafio → [importação XML + cron](#4-importação-de-xml-e-cron) · [modelagem](#5-modelagem-do-banco-de-dados) · [CRUD de quartos](#como-cadastrar-um-quarto) · [POST de reserva](#como-criar-uma-reserva).
+
 API REST em **Laravel 12 (PHP 8.2+)** para gestão hoteleira:
 
 - importação de **hotéis, quartos e reservas a partir de XML**, executada via **CRON**;
