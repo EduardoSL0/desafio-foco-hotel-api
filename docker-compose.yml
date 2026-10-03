@@ -9,6 +9,13 @@ x-app-env: &app-env
   APP_URL: http://localhost:8080
   CACHE_STORE: database
   LOG_FILE_PERMISSION: "0666"
+  # Limites de requisição por minuto (padrões da aplicação; podem ser ajustados por ambiente).
+  RATE_LIMIT_BOOKING: ${RATE_LIMIT_BOOKING:-30}
+  RATE_LIMIT_PUBLIC: ${RATE_LIMIT_PUBLIC:-120}
+  RATE_LIMIT_STAFF: ${RATE_LIMIT_STAFF:-240}
+  RATE_LIMIT_LOGIN: ${RATE_LIMIT_LOGIN:-10}
+  RATE_LIMIT_LOGIN_PER_EMAIL: ${RATE_LIMIT_LOGIN_PER_EMAIL:-5}
+  RATE_LIMIT_LOOKUP: ${RATE_LIMIT_LOOKUP:-10}
 
 services:
   app:

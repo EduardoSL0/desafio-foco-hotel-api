@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\PaymentMethod;
 use App\Enums\ReserveStatus;
 use App\Models\Guest;
+use App\Models\Hotel;
 use App\Models\Reserve;
 use App\Models\Room;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -134,12 +135,64 @@ class ImportXmlCommandTest extends TestCase
         $this->assertDatabaseCount('hotels', 0);
     }
 
+    public function test_rejects_file_with_wrong_root_element(): void
+    {
+        $dir = $this->fixtureDirectory('<Reserves/>', '<Foo><Hotel id="9"><Name>Intruso</Name></Hotel></Foo>');
+
+        $this->artisan('import:xml', ['--path' => $dir])->assertFailed();
+
+        $this->assertDatabaseCount('hotels', 0);
+    }
+
+    public function test_invalid_records_are_skipped_without_aborting_the_import(): void
+    {
+        $hotels = '<Hotels><Hotel id="1"><Name>Hotel Foco Prime</Name></Hotel><Hotel id="2"><Name>Hotel Foco Beach</Name></Hotel>'
+            .'<Hotel id="3"><Name>Hotel Foco Privillege</Name></Hotel><Hotel id="4"><Name>'.str_repeat('A', 300).'</Name></Hotel>'
+            .'<Hotel id="1"><Name>Duplicado</Name></Hotel></Hotels>';
+        $reserves = <<<'XML'
+            <Reserves>
+                <Reserve id="80" hotelCode="1" roomCode="1">
+                    <CheckIn>2023-01-01</CheckIn><CheckOut>2023-01-02</CheckOut><Total>99999999999999</Total>
+                </Reserve>
+                <Reserve id="81" hotelCode="1" roomCode="1">
+                    <CheckIn>2023-02-01</CheckIn><CheckOut>2023-02-03</CheckOut>
+                    <Dailies>
+                        <Daily><Date>2023-02-01</Date><Value>-50</Value></Daily>
+                        <Daily><Date>2023-02-02</Date><Value>120</Value></Daily>
+                    </Dailies>
+                </Reserve>
+                <Reserve id="81" hotelCode="1" roomCode="1">
+                    <CheckIn>2023-05-01</CheckIn><CheckOut>2023-05-02</CheckOut><Total>1</Total>
+                </Reserve>
+            </Reserves>
+            XML;
+
+        $this->artisan('import:xml', ['--path' => $this->fixtureDirectory($reserves, $hotels)])
+            ->expectsOutputToContain('nome (máx. 150 caracteres) longo demais')
+            ->expectsOutputToContain('Hotel 1: id duplicado')
+            ->expectsOutputToContain('Reserva 80: valor acima do máximo')
+            ->expectsOutputToContain('diária 2023-02-01 com valor inválido ignorada')
+            ->expectsOutputToContain('Reserva 81: id duplicado')
+            ->assertSuccessful();
+
+        $this->assertDatabaseCount('hotels', 3);
+        $this->assertSame('Hotel Foco Prime', Hotel::query()->where('external_code', '1')->value('name'));
+        $this->assertDatabaseMissing('reserves', ['external_code' => '80']);
+
+        $reserve = Reserve::query()->where('external_code', '81')->with('dailies')->first();
+        $this->assertSame('2023-02-01', $reserve->check_in->toDateString());
+        $this->assertCount(1, $reserve->dailies);
+        $this->assertEquals(120.0, (float) $reserve->total);
+    }
+
     /** Cria um diretório temporário com os XMLs reais de hotéis/quartos e um reserves.xml customizado. */
-    private function fixtureDirectory(string $reservesXml): string
+    private function fixtureDirectory(string $reservesXml, ?string $hotelsXml = null): string
     {
         $dir = sys_get_temp_dir().'/foco-import-'.uniqid();
         File::ensureDirectoryExists($dir);
-        File::copy(database_path('xml/hotels.xml'), "{$dir}/hotels.xml");
+        $hotelsXml === null
+            ? File::copy(database_path('xml/hotels.xml'), "{$dir}/hotels.xml")
+            : File::put("{$dir}/hotels.xml", $hotelsXml);
         File::copy(database_path('xml/rooms.xml'), "{$dir}/rooms.xml");
         File::put("{$dir}/reserves.xml", $reservesXml);
 

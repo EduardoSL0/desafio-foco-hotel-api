@@ -17,8 +17,8 @@ class UpdateRoomRequest extends FormRequest
             'hotel_id' => ['prohibited'],
             'name' => ['sometimes', 'required', 'string', 'max:120'],
             'description' => ['sometimes', 'nullable', 'string', 'max:2000'],
-            'capacity' => ['sometimes', 'integer', 'between:1,20'],
-            'inventory' => ['sometimes', 'integer', 'between:1,1000'],
+            'capacity' => ['sometimes', 'integer:strict', 'between:1,20'],
+            'inventory' => ['sometimes', 'integer:strict', 'between:1,1000'],
             'daily_price' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:99999999.99'],
         ];
     }

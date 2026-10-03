@@ -14,11 +14,11 @@ class StoreRoomRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'hotel_id' => ['required', 'integer', 'exists:hotels,id'],
+            'hotel_id' => ['required', 'integer:strict', 'exists:hotels,id'],
             'name' => ['required', 'string', 'max:120'],
             'description' => ['nullable', 'string', 'max:2000'],
-            'capacity' => ['sometimes', 'integer', 'between:1,20'],
-            'inventory' => ['sometimes', 'integer', 'between:1,1000'],
+            'capacity' => ['sometimes', 'integer:strict', 'between:1,20'],
+            'inventory' => ['sometimes', 'integer:strict', 'between:1,1000'],
             'daily_price' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
         ];
     }

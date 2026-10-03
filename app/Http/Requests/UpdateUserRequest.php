@@ -27,7 +27,7 @@ class UpdateUserRequest extends FormRequest
             'hotel_id' => [
                 Rule::requiredIf(fn () => $role !== UserRole::Admin->value && $target->hotel_id === null && ! $this->has('hotel_id')),
                 Rule::prohibitedIf(fn () => $role === UserRole::Admin->value && $this->filled('hotel_id')),
-                'nullable', 'integer', 'exists:hotels,id',
+                'nullable', 'integer:strict', 'exists:hotels,id',
             ],
         ];
     }

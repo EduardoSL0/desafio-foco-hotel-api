@@ -22,9 +22,9 @@ class StoreReserveRequest extends QuoteReserveRequest
             'guests.*.phone' => ['required', 'string', 'regex:/^\+?\d{10,15}$/'],
             'guests.*.email' => ['nullable', 'email', 'max:255'],
             'payments' => ['sometimes', 'array', 'max:10'],
-            'payments.*.method' => ['required', Rule::enum(PaymentMethod::class)],
+            'payments.*.method' => ['bail', 'required', 'integer:strict', Rule::enum(PaymentMethod::class)],
             'payments.*.value' => ['required', 'numeric', 'min:0.01'],
-            'payments.*.installments' => ['sometimes', 'integer', "between:1,{$maxInstallments}"],
+            'payments.*.installments' => ['sometimes', 'integer:strict', "between:1,{$maxInstallments}"],
         ];
     }
 

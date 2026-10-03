@@ -38,7 +38,7 @@ class StoreUserRequest extends FormRequest
             'hotel_id' => [
                 Rule::requiredIf(fn () => $this->input('role') !== UserRole::Admin->value),
                 Rule::prohibitedIf(fn () => $this->input('role') === UserRole::Admin->value),
-                'nullable', 'integer', 'exists:hotels,id',
+                'nullable', 'integer:strict', 'exists:hotels,id',
             ],
         ];
     }

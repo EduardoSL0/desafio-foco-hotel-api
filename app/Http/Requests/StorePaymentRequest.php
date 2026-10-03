@@ -18,9 +18,9 @@ class StorePaymentRequest extends FormRequest
         $maxInstallments = config('hotel.payments.max_installments', 12);
 
         return [
-            'method' => ['required', Rule::enum(PaymentMethod::class)],
+            'method' => ['bail', 'required', 'integer:strict', Rule::enum(PaymentMethod::class)],
             'value' => ['required', 'numeric', 'min:0.01'],
-            'installments' => ['sometimes', 'integer', "between:1,{$maxInstallments}"],
+            'installments' => ['sometimes', 'integer:strict', "between:1,{$maxInstallments}"],
         ];
     }
 }

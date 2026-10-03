@@ -15,9 +15,15 @@ final class RoomXmlImporter implements XmlEntityImporter
         return 'rooms';
     }
 
+    public function rootElement(): string
+    {
+        return 'Rooms';
+    }
+
     public function import(SimpleXMLElement $root, ImportReport $report): void
     {
         $hotels = Hotel::query()->whereNotNull('external_code')->pluck('id', 'external_code');
+        $seen = [];
 
         foreach ($root->Room as $node) {
             $code = trim((string) $node['id']);
@@ -29,6 +35,19 @@ final class RoomXmlImporter implements XmlEntityImporter
 
                 continue;
             }
+
+            if (mb_strlen($code) > 50 || mb_strlen($name) > 120) {
+                $report->skipped('rooms', 'Quarto '.mb_strimwidth($code, 0, 20, '…').': código (máx. 50) ou nome (máx. 120 caracteres) longo demais.');
+
+                continue;
+            }
+
+            if (isset($seen[$code])) {
+                $report->skipped('rooms', "Quarto {$code}: id duplicado no arquivo; mantida a primeira ocorrência.");
+
+                continue;
+            }
+            $seen[$code] = true;
 
             if (! $hotels->has($hotelCode)) {
                 $report->skipped('rooms', "Quarto {$code}: hotel {$hotelCode} não encontrado.");

@@ -14,5 +14,8 @@ interface XmlEntityImporter
     /** Chave do arquivo em config('hotel.import.files'). */
     public function key(): string;
 
+    /** Nome esperado do elemento raiz do arquivo (ex.: "Hotels"). */
+    public function rootElement(): string;
+
     public function import(SimpleXMLElement $root, ImportReport $report): void;
 }

@@ -15,6 +15,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -45,6 +46,9 @@ class AppServiceProvider extends ServiceProvider
         Model::preventSilentlyDiscardingAttributes(! $this->app->isProduction());
 
         $this->configureRateLimiting();
+
+        // Parâmetros de rota numéricos: "1'" ou "1 OR 1=1" retornam 404 em vez de serem lidos como 1.
+        Route::patterns(array_fill_keys(['hotel', 'room', 'reserve', 'user', 'promotion', 'coupon'], '[0-9]+'));
     }
 
     /**
@@ -57,18 +61,19 @@ class AppServiceProvider extends ServiceProvider
     private function configureRateLimiting(): void
     {
         $byUserOrIp = fn (Request $request) => $request->user('sanctum')?->getAuthIdentifier() ?? $request->ip();
+        $limit = fn (string $name) => (int) config("hotel.rate_limits.{$name}");
 
         // Contra força bruta de senha: por IP e por e-mail tentado.
         RateLimiter::for('login', fn (Request $request) => [
-            Limit::perMinute(10)->by('ip:'.$request->ip()),
-            Limit::perMinute(5)->by('email:'.mb_strtolower((string) $request->input('email'))),
+            Limit::perMinute($limit('login'))->by('ip:'.$request->ip()),
+            Limit::perMinute($limit('login_per_email'))->by('email:'.(is_string($email = $request->input('email')) ? mb_strtolower($email) : '')),
         ]);
 
         // Contra adivinhação de localizadores.
-        RateLimiter::for('lookup', fn (Request $request) => Limit::perMinute(10)->by($request->ip()));
+        RateLimiter::for('lookup', fn (Request $request) => Limit::perMinute($limit('lookup'))->by($request->ip()));
 
-        RateLimiter::for('booking', fn (Request $request) => Limit::perMinute(30)->by($byUserOrIp($request)));
-        RateLimiter::for('public', fn (Request $request) => Limit::perMinute(120)->by($request->ip()));
-        RateLimiter::for('staff', fn (Request $request) => Limit::perMinute(240)->by($byUserOrIp($request)));
+        RateLimiter::for('booking', fn (Request $request) => Limit::perMinute($limit('booking'))->by($byUserOrIp($request)));
+        RateLimiter::for('public', fn (Request $request) => Limit::perMinute($limit('public'))->by($request->ip()));
+        RateLimiter::for('staff', fn (Request $request) => Limit::perMinute($limit('staff'))->by($byUserOrIp($request)));
     }
 }

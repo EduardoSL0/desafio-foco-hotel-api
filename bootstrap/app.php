@@ -2,10 +2,14 @@
 
 use App\Http\Middleware\ForceJsonResponse;
 use App\Http\Middleware\LogApiRequest;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -27,9 +31,38 @@ return Application::configure(basePath: dirname(__DIR__))
             fn (Request $request) => $request->is('api/*') || $request->expectsJson()
         );
 
+        // Respostas de erro padronizadas, em português e sem detalhes internos.
         $exceptions->render(function (NotFoundHttpException $e, Request $request) {
             if ($request->is('api/*')) {
                 return response()->json(['message' => 'Recurso não encontrado.'], 404);
+            }
+        });
+
+        $exceptions->render(function (AuthenticationException $e, Request $request) {
+            if ($request->is('api/*')) {
+                return response()->json(['message' => 'Não autenticado. Faça login em POST /api/v1/auth/login e envie o token no cabeçalho Authorization: Bearer <token>.'], 401);
+            }
+        });
+
+        $exceptions->render(function (AccessDeniedHttpException $e, Request $request) {
+            if ($request->is('api/*')) {
+                $custom = $e->getMessage() !== '' && $e->getMessage() !== 'This action is unauthorized.';
+
+                return response()->json(['message' => $custom ? $e->getMessage() : 'Você não tem permissão para esta ação.'], 403);
+            }
+        });
+
+        $exceptions->render(function (ThrottleRequestsException $e, Request $request) {
+            if ($request->is('api/*')) {
+                $wait = (int) ($e->getHeaders()['Retry-After'] ?? 60);
+
+                return response()->json(['message' => "Muitas requisições. Tente novamente em {$wait} segundo(s)."], 429, $e->getHeaders());
+            }
+        });
+
+        $exceptions->render(function (MethodNotAllowedHttpException $e, Request $request) {
+            if ($request->is('api/*')) {
+                return response()->json(['message' => 'Método HTTP não permitido para esta rota.'], 405, $e->getHeaders());
             }
         });
     })->create();

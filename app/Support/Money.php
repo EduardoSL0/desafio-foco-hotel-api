@@ -9,6 +9,9 @@ namespace App\Support;
  */
 final class Money
 {
+    /** Maior valor que cabe nas colunas decimal(10,2): R$ 99.999.999,99. */
+    public const MAX_CENTS = 9_999_999_999;
+
     public static function toCents(string|int|float|null $value): int
     {
         return (int) round(((float) $value) * 100);

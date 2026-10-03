@@ -39,6 +39,24 @@ return [
         'max_installments' => 12,
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Limites de requisição (por minuto)
+    |--------------------------------------------------------------------------
+    |
+    | Cada grupo de rotas tem o próprio contador (ver AppServiceProvider).
+    |
+    */
+
+    'rate_limits' => [
+        'login' => (int) env('RATE_LIMIT_LOGIN', 10),
+        'login_per_email' => (int) env('RATE_LIMIT_LOGIN_PER_EMAIL', 5),
+        'lookup' => (int) env('RATE_LIMIT_LOOKUP', 10),
+        'booking' => (int) env('RATE_LIMIT_BOOKING', 30),
+        'public' => (int) env('RATE_LIMIT_PUBLIC', 120),
+        'staff' => (int) env('RATE_LIMIT_STAFF', 240),
+    ],
+
     'auth' => [
         'token_ttl_hours' => (int) env('API_TOKEN_TTL_HOURS', 8),
     ],

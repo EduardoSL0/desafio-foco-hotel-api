@@ -68,6 +68,10 @@ final class ReserveService
             $coupon = $this->resolveCoupon($data['coupon_code'] ?? null, $room, lock: true);
             $breakdown = $this->calculator->quote($room, $checkIn, $checkOut, $coupon);
 
+            if (max($breakdown->subtotal(), $breakdown->total()) > Money::MAX_CENTS) {
+                throw ValidationException::withMessages(['check_out' => 'O valor total da estadia ultrapassa o máximo suportado (R$ 99.999.999,99).']);
+            }
+
             $reserve = $this->persist($room, $breakdown, $coupon);
             $reserve->guests()->sync($this->resolveGuests($data['guests']));
 
@@ -96,11 +100,15 @@ final class ReserveService
 
     public function cancel(Reserve $reserve): Reserve
     {
-        if ($reserve->status === ReserveStatus::Cancelled) {
-            throw new ReserveCancelledException;
-        }
-
         DB::transaction(function () use ($reserve) {
+            // Lock na reserva: cancelamentos simultâneos não podem devolver o uso do cupom duas vezes.
+            $locked = Reserve::query()->lockForUpdate()->findOrFail($reserve->id);
+            $reserve->setRawAttributes($locked->getAttributes(), true);
+
+            if ($reserve->status === ReserveStatus::Cancelled) {
+                throw new ReserveCancelledException;
+            }
+
             $reserve->update(['status' => ReserveStatus::Cancelled]);
 
             // Devolve o uso do cupom para que ele volte a ficar disponível.

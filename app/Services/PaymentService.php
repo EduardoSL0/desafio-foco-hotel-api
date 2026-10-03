@@ -20,6 +20,12 @@ final class PaymentService
     public function register(Reserve $reserve, array $data, string $errorPrefix = ''): Payment
     {
         return DB::transaction(function () use ($reserve, $data, $errorPrefix) {
+            // Lock na reserva: pagamentos simultâneos são processados um por vez, então o
+            // saldo lido abaixo é sempre o atual (sem isso, dois pagamentos podiam ultrapassar o total).
+            $locked = Reserve::query()->lockForUpdate()->findOrFail($reserve->id);
+            $reserve->setRawAttributes($locked->getAttributes(), true);
+            $reserve->unsetRelation('payments');
+
             if ($reserve->status === ReserveStatus::Cancelled) {
                 throw new ReserveCancelledException;
             }

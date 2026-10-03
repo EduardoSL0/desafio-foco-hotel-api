@@ -33,7 +33,14 @@ final class XmlImportService
         $documents = [];
         foreach ($this->importers as $importer) {
             $file = $files[$importer->key()] ?? throw new ImportException("Arquivo não configurado para '{$importer->key()}'.");
-            $documents[$importer->key()] = $this->loader->load($directory.DIRECTORY_SEPARATOR.$file);
+            $path = $directory.DIRECTORY_SEPARATOR.$file;
+            $document = $this->loader->load($path);
+
+            if ($document->getName() !== $importer->rootElement()) {
+                throw new ImportException("Elemento raiz inválido em {$path}: esperado <{$importer->rootElement()}>, encontrado <{$document->getName()}>.");
+            }
+
+            $documents[$importer->key()] = $document;
         }
 
         try {

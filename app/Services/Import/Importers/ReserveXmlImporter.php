@@ -21,22 +21,41 @@ final class ReserveXmlImporter implements XmlEntityImporter
         return 'reserves';
     }
 
+    public function rootElement(): string
+    {
+        return 'Reserves';
+    }
+
     public function import(SimpleXMLElement $root, ImportReport $report): void
     {
         $hotels = Hotel::query()->whereNotNull('external_code')->pluck('id', 'external_code');
         $rooms = Room::withTrashed()->whereNotNull('external_code')->get()->keyBy('external_code');
+        $seen = [];
 
         foreach ($root->Reserve as $node) {
             $code = trim((string) $node['id']);
             $hotelCode = trim((string) $node['hotelCode']);
             $roomCode = trim((string) $node['roomCode']);
-            $label = "Reserva {$code}";
+            $label = 'Reserva '.mb_strimwidth($code, 0, 20, '…');
 
             if ($code === '') {
                 $report->skipped('reserves', 'Reserva sem atributo "id".');
 
                 continue;
             }
+
+            if (mb_strlen($code) > 50) {
+                $report->skipped('reserves', "{$label}: código longo demais (máx. 50 caracteres).");
+
+                continue;
+            }
+
+            if (isset($seen[$code])) {
+                $report->skipped('reserves', "{$label}: id duplicado no arquivo; mantida a primeira ocorrência.");
+
+                continue;
+            }
+            $seen[$code] = true;
 
             $hotelId = isset($hotels[$hotelCode]) ? (int) $hotels[$hotelCode] : null;
             /** @var Room|null $room */
@@ -70,6 +89,13 @@ final class ReserveXmlImporter implements XmlEntityImporter
             if ($total <= 0) {
                 $total = $subtotal;
                 $report->warning("{$label}: <Total> ausente ou inválido, usado o somatório das diárias.");
+            }
+
+            // Valores acima do suportado pelo banco: ignora só esta reserva, não a importação inteira.
+            if ($total > Money::MAX_CENTS || $subtotal > Money::MAX_CENTS) {
+                $report->skipped('reserves', "{$label}: valor acima do máximo suportado (R$ 99.999.999,99).");
+
+                continue;
             }
 
             if ($dailies !== [] && $subtotal !== $total) {
@@ -131,7 +157,15 @@ final class ReserveXmlImporter implements XmlEntityImporter
                 $report->warning("{$label}: diária {$date->toDateString()} fora do período {$in->toDateString()} a {$out->toDateString()}.");
             }
 
-            $dailies[] = ['date' => $date->toDateString(), 'cents' => Money::toCents((string) $daily->Value)];
+            $cents = Money::toCents((string) $daily->Value);
+
+            if ($cents < 0 || $cents > Money::MAX_CENTS) {
+                $report->warning("{$label}: diária {$date->toDateString()} com valor inválido ignorada.");
+
+                continue;
+            }
+
+            $dailies[] = ['date' => $date->toDateString(), 'cents' => $cents];
         }
 
         return $dailies;
@@ -153,6 +187,12 @@ final class ReserveXmlImporter implements XmlEntityImporter
                 continue;
             }
 
+            if (mb_strlen($name) > 100 || mb_strlen($lastName) > 100 || strlen($phone) > 20) {
+                $report->warning("{$label}: hóspede com nome, sobrenome ou telefone longo demais ignorado.");
+
+                continue;
+            }
+
             // Hóspedes são deduplicados por nome + sobrenome + telefone.
             $ids[] = Guest::firstOrCreate(['name' => $name, 'last_name' => $lastName, 'phone' => $phone])->id;
         }
@@ -169,7 +209,7 @@ final class ReserveXmlImporter implements XmlEntityImporter
             $method = PaymentMethod::tryFrom((int) $payment->Method);
             $value = Money::toCents((string) $payment->Value);
 
-            if (! $method || $value <= 0) {
+            if (! $method || $value <= 0 || $value > Money::MAX_CENTS) {
                 $report->warning("{$label}: pagamento com método ou valor inválido ignorado.");
 
                 continue;

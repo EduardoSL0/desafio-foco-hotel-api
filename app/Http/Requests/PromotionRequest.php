@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Models\Promotion;
+use App\Support\DateInput;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -23,15 +24,27 @@ class PromotionRequest extends FormRequest
         $required = $creating ? 'required' : 'sometimes';
 
         return [
-            'hotel_id' => $creating ? ['required', 'integer', 'exists:hotels,id'] : ['prohibited'],
+            'hotel_id' => $creating ? ['required', 'integer:strict', 'exists:hotels,id'] : ['prohibited'],
             // O quarto (opcional) precisa pertencer ao hotel da promoção.
-            'room_id' => ['nullable', 'integer', Rule::exists('rooms', 'id')->where('hotel_id', $hotelId)->whereNull('deleted_at')],
+            'room_id' => ['nullable', 'integer:strict', Rule::exists('rooms', 'id')->where('hotel_id', $hotelId)->whereNull('deleted_at')],
             'name' => [$required, 'string', 'max:120'],
             'discount_percent' => [$required, 'numeric', 'min:0.01', 'max:100'],
-            'starts_at' => [$required, 'date_format:Y-m-d'],
-            'ends_at' => [$required, 'date_format:Y-m-d', 'after_or_equal:'.($this->input('starts_at') ?? $promotion?->starts_at?->toDateString() ?? 'starts_at')],
+            'starts_at' => ['bail', $required, 'date_format:Y-m-d'],
+            'ends_at' => ['bail', $required, 'date_format:Y-m-d', ...$this->endsAfterStart($promotion)],
             'active' => ['sometimes', 'boolean'],
         ];
+    }
+
+    /**
+     * O fim não pode ser antes do início (o enviado agora ou o já gravado, na edição).
+     *
+     * @return list<string>
+     */
+    private function endsAfterStart(?Promotion $promotion): array
+    {
+        $start = $this->has('starts_at') ? $this->input('starts_at') : $promotion?->starts_at?->toDateString();
+
+        return DateInput::isDate($start) ? ['after_or_equal:'.$start] : [];
     }
 
     public function messages(): array
