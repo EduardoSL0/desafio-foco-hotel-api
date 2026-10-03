@@ -377,6 +377,23 @@ class ReserveApiTest extends TestCase
         $this->getJson(self::API.'/reserves?status=invalido')->assertOk()->assertJsonCount(2, 'data');
     }
 
+    public function test_optional_hotel_id_must_match_the_room(): void
+    {
+        $room = Room::factory()->create();
+        $other = Hotel::factory()->create();
+
+        $this->postJson(self::API.'/reserves', $this->payload($room, ['hotel_id' => $other->id]))
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.room_id.0', 'O quarto informado não pertence ao hotel informado.');
+
+        $this->postJson(self::API.'/reserves/quote', $this->payload($room, ['hotel_id' => $other->id]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('room_id');
+
+        $this->postJson(self::API.'/reserves', $this->payload($room, ['hotel_id' => $room->hotel_id]))
+            ->assertCreated();
+    }
+
     public function test_receptionist_cannot_cancel_reserve(): void
     {
         $reserve = Reserve::factory()->create();

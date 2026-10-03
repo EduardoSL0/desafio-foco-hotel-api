@@ -986,6 +986,7 @@ components:
       type: object
       required: [room_id, check_in, check_out]
       properties:
+        hotel_id: { type: integer, example: 1, description: "Opcional (como o hotelCode do XML); se enviado, o quarto precisa ser deste hotel" }
         room_id: { type: integer, example: 1 }
         check_in: { type: string, format: date, example: '2027-03-10' }
         check_out: { type: string, format: date, example: '2027-03-13' }

@@ -37,7 +37,7 @@ API REST em **Laravel 12 (PHP 8.2+)** para gestão hoteleira:
 | **Proteção do inventário** | O hoteleiro não consegue reduzir as unidades de um quarto abaixo das reservas futuras já vendidas (evita overbooking por edição). |
 | **Desempenho no Docker** | `vendor/` em volume próprio + OPcache: respostas de ~5 s caíram para ~0,1 s no Docker Desktop (Windows/macOS). |
 | **Documentação interativa guiada** (`/docs`) | Guia "como testar em 3 passos", **login com um clique** por perfil (o token é aplicado sozinho), roteiro com atalhos para as rotas principais e exemplos prontos para executar, com datas sempre válidas. |
-| **124 testes automatizados** + teste bruto | Cobrem importação, regras de preço, permissões, concorrência de cupom, idempotência, relatórios e a experiência do hóspede. |
+| **127 testes automatizados** + teste bruto | Cobrem importação, regras de preço, permissões, concorrência de cupom, idempotência, relatórios e a experiência do hóspede. |
 
 ---
 
@@ -626,10 +626,10 @@ O `docker-compose.yml` é pensado para **avaliação e desenvolvimento**. Para a
 | HTTPS | não | obrigatório (terminar TLS no balanceador ou no Nginx) |
 | Performance | — | `php artisan config:cache route:cache` no deploy |
 
-Criar o primeiro administrador em produção:
+Criar o primeiro administrador em produção (a senha é pedida sem aparecer na tela nem ficar no histórico do terminal):
 
 ```bash
-php artisan tinker --execute="AppModelsUser::create([name=>Admin,email=>admin@seuhotel.example,password=>TROQUE-ESTA-SENHA,role=>admin]);"
+php artisan user:create-admin admin@seuhotel.example --name="Administrador"
 ```
 
 Dados pessoais (LGPD): a API armazena nome, sobrenome, telefone e e-mail dos hóspedes apenas para a reserva;
@@ -658,6 +658,8 @@ git log --oneline
 | "Fulaninho de Tal" aparece em 2 reservas com o mesmo telefone         | Um único hóspede vinculado às duas reservas.                                                |
 | `rooms.xml` não traz tarifa                                           | `daily_price` é preenchido com a última diária importada do quarto (se ainda vazio); quartos sem reservas ficam sem tarifa até serem editados via API. |
 | `<Method>1</Method>` sem descrição                                    | Mapeamento próprio: 1 crédito, 2 débito, 3 pix, 4 dinheiro, 5 boleto.                       |
+| **O POST de reserva não recebe total nem diárias**, ao contrário do XML (`<Total>`, `<Dailies>`) | O servidor calcula as diárias e o total a partir da tarifa do quarto, promoções, cupom e taxa. Se o cliente pudesse enviar o total, poderia pagar R$ 1 por uma suíte. O `hotel_id` é aceito opcionalmente (como o `hotelCode` do XML) e precisa bater com o quarto. Dados históricos no formato do XML entram pelo importador. |
+| Modelagem no MySQL Workbench | O desafio sugere o Workbench; o projeto traz `database/model/schema.sql`, que o Workbench transforma em diagrama EER via *File → Import → Reverse Engineer MySQL Create Script* (e pode ser salvo como `.mwb`). O diagrama também está neste README (seção 5). |
 | Total do XML diferente da soma das diárias                            | Diferença registrada como desconto (se menor) ou taxa (se maior), com aviso.                |
 
 ---
@@ -694,7 +696,7 @@ Problemas encontrados e corrigidos:
 |---|---|
 | **10 pagamentos simultâneos de R$ 100 numa reserva de R$ 300 aceitavam R$ 400** | *Lock* da reserva durante o pagamento: o saldo lido é sempre o atual |
 | **Cancelamento simultâneo aplicado 2 vezes** (devolvia o uso do cupom em dobro) | *Lock* da reserva durante o cancelamento |
-| **Erro 500** com lista/decimal em campos de data e com lista no e-mail do login | Comparações entre datas só quando o outro campo é uma data válida (`AppSupportDateInput`) |
+| **Erro 500** com lista/decimal em campos de data e com lista no e-mail do login | Comparações entre datas só quando o outro campo é uma data válida (`App\Support\DateInput`) |
 | `true` e `1.5` aceitos como número inteiro (ex.: forma de pagamento `1.5` virava cartão de crédito) | Regra `integer:strict` nos campos inteiros |
 | IDs como `1'` ou `1 OR 1=1` na URL eram lidos como `1` (não era SQL injection, mas era frouxo) | Parâmetros de rota aceitam só números (404 caso contrário) |
 | Estadia de valor acima do suportado pela coluna (R$ 99 milhões × noites) gerava erro ao gravar | Validação do valor máximo antes de gravar |
@@ -710,4 +712,4 @@ configurado (agora ajustáveis por variáveis `RATE_LIMIT_*`).
 
 Validação final: o repositório foi clonado em uma pasta vazia (sem `vendor`, `.env` ou banco) e `docker compose up`
 subiu tudo sozinho — dependências, chave, migrations, importação dos XMLs — com todos os endpoints respondendo e os
-124 testes passando dentro do container sem alterar o banco MySQL.
+127 testes passando dentro do container sem alterar o banco MySQL.
