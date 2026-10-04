@@ -194,6 +194,7 @@
         document.getElementById('logout').onclick = () => {
             ui.authActions.logout(['bearerAuth']);
             sessionStorage.removeItem('foco_docs_user');
+            sessionStorage.removeItem('foco_docs_token');
             status.className = 'auth';
             status.textContent = 'Você saiu — apenas as rotas públicas vão funcionar.';
         };
@@ -202,6 +203,7 @@
     function applyToken(token, user) {
         ui.preauthorizeApiKey('bearerAuth', token);
         sessionStorage.setItem('foco_docs_user', JSON.stringify(user));
+        sessionStorage.setItem('foco_docs_token', token);
         showAuth(user);
     }
 
@@ -232,7 +234,14 @@
 
     fetch('openapi.yaml', { cache: 'no-cache' }) // sempre revalida: evita especificação antiga em cache
         .then((r) => r.text())
-        .then((yaml) => ui.specActions.updateSpec(Object.entries(DATES).reduce((t, [from, to]) => t.split(from).join(to), yaml)));
+        .then((yaml) => {
+            ui.specActions.updateSpec(Object.entries(DATES).reduce((t, [from, to]) => t.split(from).join(to), yaml));
+            // Após recarregar a página, reaplica o token salvo (só depois da spec carregada,
+            // senão o Swagger ignora). Sem token salvo, o banner não aparece.
+            const saved = sessionStorage.getItem('foco_docs_user');
+            const savedToken = sessionStorage.getItem('foco_docs_token');
+            if (saved && savedToken) applyToken(savedToken, JSON.parse(saved));
+        });
 
     // Login com um clique.
     document.querySelectorAll('[data-login]').forEach((btn) => btn.addEventListener('click', async () => {
@@ -284,9 +293,6 @@
 
     // Roteiro aberto quando cabe ao lado dos perfis; recolhido em telas estreitas.
     if (window.matchMedia('(min-width: 901px)').matches) document.getElementById('tour').open = true;
-
-    const saved = sessionStorage.getItem('foco_docs_user');
-    if (saved && localStorage.getItem('authorized')) showAuth(JSON.parse(saved));
 
     window.ui = ui;
 })();
