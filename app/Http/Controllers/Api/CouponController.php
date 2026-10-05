@@ -6,11 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreCouponRequest;
 use App\Http\Resources\CouponResource;
 use App\Models\Coupon;
+use App\Models\Reserve;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 
 class CouponController extends Controller
 {
@@ -37,14 +39,26 @@ class CouponController extends Controller
 
         $coupon = Coupon::create($request->validated());
 
+        Log::info('coupon.created', ['coupon_id' => $coupon->id, 'code' => $coupon->code, 'by' => $request->user()->id]);
+
         return (new CouponResource($coupon->refresh()))->response()->setStatusCode(201);
     }
 
-    public function destroy(Coupon $coupon): Response
+    /**
+     * Cupom ainda não usado é excluído. Cupom já usado em reservas é apenas desativado,
+     * para não perder o histórico de qual cupom cada reserva utilizou.
+     */
+    public function destroy(Request $request, Coupon $coupon): Response
     {
         Gate::authorize('delete', $coupon);
 
-        $coupon->delete();
+        if (Reserve::query()->where('coupon_id', $coupon->id)->exists()) {
+            $coupon->update(['active' => false]);
+            Log::info('coupon.deactivated', ['coupon_id' => $coupon->id, 'by' => $request->user()->id]);
+        } else {
+            $coupon->delete();
+            Log::info('coupon.deleted', ['coupon_id' => $coupon->id, 'by' => $request->user()->id]);
+        }
 
         return response()->noContent();
     }

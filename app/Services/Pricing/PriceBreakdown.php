@@ -41,6 +41,28 @@ final class PriceBreakdown
         return $this->nights;
     }
 
+    /**
+     * Diárias com o desconto total (promoção + parte proporcional do cupom). A soma dos
+     * valores líquidos é igual a subtotal - desconto, o que mantém o relatório (receita,
+     * ADR, RevPAR) coerente com o total da reserva.
+     *
+     * @return array<string, array{value: int, discount: int}>
+     */
+    public function nightsWithCoupon(): array
+    {
+        $shares = Money::allocate(
+            $this->couponDiscount,
+            array_map(fn (array $n) => $n['value'] - $n['discount'], $this->nights),
+        );
+
+        $nights = $this->nights;
+        foreach ($nights as $date => $night) {
+            $nights[$date]['discount'] += $shares[$date];
+        }
+
+        return $nights;
+    }
+
     public function applyNightDiscount(string $date, int $amount, string $label): void
     {
         $night = $this->nights[$date];
@@ -115,7 +137,7 @@ final class PriceBreakdown
                     'discount' => Money::fromCents($night['discount']),
                 ],
                 array_keys($this->nights),
-                $this->nights,
+                $this->nightsWithCoupon(),
             ),
             'adjustments' => array_values(array_map(
                 fn (array $a) => [...$a, 'amount' => Money::fromCents($a['amount'])],

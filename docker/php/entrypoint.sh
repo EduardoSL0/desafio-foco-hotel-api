@@ -33,7 +33,8 @@ if [ "${CONTAINER_ROLE:-app}" = "app" ]; then
 
     php artisan migrate --force
 
-    if [ "${SEED_ON_START:-true}" = "true" ]; then
+    # Seed de demonstração só quando pedido explicitamente (o docker-compose.yml de avaliação liga).
+    if [ "${SEED_ON_START:-false}" = "true" ]; then
         php artisan db:seed --force
     fi
 

@@ -3,11 +3,14 @@
 use App\Http\Middleware\ForceJsonResponse;
 use App\Http\Middleware\LogApiRequest;
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Database\DetectsLostConnections;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
@@ -26,6 +29,12 @@ return Application::configure(basePath: dirname(__DIR__))
             ForceJsonResponse::class,
             LogApiRequest::class,
         ]);
+
+        // Atrás de um balanceador/proxy, informe os IPs dele em TRUSTED_PROXIES (ou "*"):
+        // sem isso todos os clientes aparecem com o IP do proxy e os limites "por IP" viram globais.
+        if (filled($proxies = env('TRUSTED_PROXIES'))) {
+            $middleware->trustProxies(at: $proxies === '*' ? '*' : array_map('trim', explode(',', $proxies)));
+        }
     })
     ->withExceptions(function (Exceptions $exceptions) {
         $exceptions->shouldRenderJsonWhen(
@@ -75,5 +84,34 @@ return Application::configure(basePath: dirname(__DIR__))
 
                 return response()->json(['message' => $message], $e->getStatusCode(), $e->getHeaders());
             }
+        });
+
+        // Qualquer outro erro (banco, bug, serviço externo): resposta genérica, sem SQL, classe,
+        // arquivo ou stack trace, mesmo com APP_DEBUG=true. O detalhe fica no log, ligado pelo
+        // X-Request-Id devolvido ao cliente.
+        $exceptions->render(function (Throwable $e, Request $request) {
+            if (! $request->is('api/*')
+                || $e instanceof ValidationException
+                || $e instanceof AuthenticationException
+                || $e instanceof HttpResponseException
+                || $e instanceof HttpExceptionInterface) {
+                return null;
+            }
+
+            $lostConnection = new class
+            {
+                use DetectsLostConnections;
+
+                public function check(Throwable $e): bool
+                {
+                    return $this->causedByLostConnection($e);
+                }
+            };
+
+            if ($lostConnection->check($e)) {
+                return response()->json(['message' => 'Serviço temporariamente indisponível. Tente novamente em instantes.'], 503);
+            }
+
+            return response()->json(['message' => 'Erro interno ao processar a requisição. Se persistir, informe o X-Request-Id ao suporte.'], 500);
         });
     })->create();

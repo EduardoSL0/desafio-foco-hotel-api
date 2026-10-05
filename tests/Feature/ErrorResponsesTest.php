@@ -5,7 +5,9 @@ namespace Tests\Feature;
 use App\Models\Hotel;
 use App\Models\Room;
 use App\Models\User;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Route;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -75,5 +77,41 @@ class ErrorResponsesTest extends TestCase
             ->assertExactJson(['message' => 'Apenas administradores e gerentes do hotel acessam o relatório.']);
 
         $this->getJson(self::API.'/users')->assertForbidden()->assertExactJson(['message' => 'Sem permissão para listar usuários.']);
+    }
+
+    public function test_unexpected_errors_never_leak_internal_details_even_with_debug_on(): void
+    {
+        config(['app.debug' => true]);
+        Route::middleware('api')->get('api/v1/__falha', fn () => throw new \RuntimeException('SQLSTATE segredo interno /var/www/html'));
+
+        $response = $this->getJson('/api/v1/__falha')
+            ->assertStatus(500)
+            ->assertJsonPath('message', 'Erro interno ao processar a requisição. Se persistir, informe o X-Request-Id ao suporte.')
+            ->assertJsonMissingPath('exception')
+            ->assertJsonMissingPath('trace')
+            ->assertHeader('X-Request-Id');
+
+        $this->assertStringNotContainsString('segredo', $response->getContent());
+    }
+
+    public function test_database_unavailable_returns_503(): void
+    {
+        config(['app.debug' => true]);
+        Route::middleware('api')->get('api/v1/__sem_banco', fn () => throw new QueryException(
+            'mysql', 'select 1', [], new \PDOException('SQLSTATE[HY000] [2002] Connection refused'),
+        ));
+
+        $this->getJson('/api/v1/__sem_banco')
+            ->assertStatus(503)
+            ->assertJsonPath('message', 'Serviço temporariamente indisponível. Tente novamente em instantes.');
+    }
+
+    public function test_huge_coupon_max_uses_is_a_validation_error_not_a_database_error(): void
+    {
+        Sanctum::actingAs(User::factory()->admin()->create());
+
+        $this->postJson(self::API.'/coupons', ['code' => 'GRANDE', 'type' => 'percent', 'value' => 10, 'max_uses' => PHP_INT_MAX])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('max_uses');
     }
 }

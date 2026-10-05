@@ -141,4 +141,81 @@ class UserApiTest extends TestCase
         $this->getJson(self::API."/users/{$receptionist->id}")->assertOk();
         $this->getJson(self::API."/users/{$other->id}")->assertForbidden();
     }
+
+    public function test_manager_manages_only_receptionists(): void
+    {
+        $hotel = Hotel::factory()->create();
+        $manager = User::factory()->manager($hotel)->create();
+        $peer = User::factory()->manager($hotel)->create();
+        $receptionist = User::factory()->receptionist($hotel)->create();
+        Sanctum::actingAs($manager);
+
+        $this->postJson(self::API.'/users', ['name' => 'G', 'email' => 'g@foco.test', 'password' => 'senhaForte123', 'role' => 'manager'])->assertForbidden();
+        $this->patchJson(self::API."/users/{$receptionist->id}", ['role' => 'manager'])->assertForbidden();
+        $this->patchJson(self::API."/users/{$peer->id}", ['password' => 'outraSenha123'])->assertForbidden();
+        $this->deleteJson(self::API."/users/{$peer->id}")->assertForbidden();
+
+        // Consulta continua liberada para toda a equipe do hotel.
+        $this->getJson(self::API."/users/{$peer->id}")->assertOk();
+        $this->patchJson(self::API."/users/{$receptionist->id}", ['name' => 'Recepção 2'])->assertOk();
+    }
+
+    public function test_full_update_resending_the_same_role_is_not_a_promotion(): void
+    {
+        $hotel = Hotel::factory()->create();
+        $manager = User::factory()->manager($hotel)->create();
+        Sanctum::actingAs($manager);
+
+        $this->putJson(self::API."/users/{$manager->id}", ['name' => 'Novo Nome', 'email' => $manager->email, 'role' => 'manager', 'hotel_id' => $hotel->id])
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Novo Nome');
+    }
+
+    public function test_the_last_admin_cannot_be_demoted(): void
+    {
+        $hotel = Hotel::factory()->create();
+        $admin = User::factory()->admin()->create();
+        Sanctum::actingAs($admin);
+
+        $this->patchJson(self::API."/users/{$admin->id}", ['role' => 'receptionist', 'hotel_id' => $hotel->id])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.role.0', 'Este é o único administrador do sistema e não pode ser rebaixado ou excluído.');
+
+        $other = User::factory()->admin()->create();
+        $this->patchJson(self::API."/users/{$other->id}", ['role' => 'receptionist', 'hotel_id' => $hotel->id])->assertOk();
+    }
+
+    public function test_changing_own_password_requires_the_current_one(): void
+    {
+        $hotel = Hotel::factory()->create();
+        $manager = User::factory()->manager($hotel)->create(['password' => 'senhaAtual123']);
+        Sanctum::actingAs($manager);
+
+        $this->patchJson(self::API."/users/{$manager->id}", ['password' => 'novaSenha123'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('current_password');
+        $this->patchJson(self::API."/users/{$manager->id}", ['password' => 'novaSenha123', 'current_password' => 'errada123'])
+            ->assertUnprocessable();
+        $this->patchJson(self::API."/users/{$manager->id}", ['password' => 'novaSenha123', 'current_password' => 'senhaAtual123'])
+            ->assertOk();
+
+        $this->app['auth']->forgetGuards();
+        $this->postJson(self::API.'/auth/login', ['email' => $manager->email, 'password' => 'novaSenha123'])->assertOk();
+    }
+
+    public function test_email_is_case_insensitive(): void
+    {
+        $hotel = Hotel::factory()->create();
+        Sanctum::actingAs(User::factory()->admin()->create());
+
+        $this->postJson(self::API.'/users', ['name' => 'João', 'email' => 'Joao@Foco.test', 'password' => 'senhaForte123', 'role' => 'receptionist', 'hotel_id' => $hotel->id])
+            ->assertCreated()
+            ->assertJsonPath('data.email', 'joao@foco.test');
+        $this->postJson(self::API.'/users', ['name' => 'Outro', 'email' => 'JOAO@foco.test', 'password' => 'senhaForte123', 'role' => 'receptionist', 'hotel_id' => $hotel->id])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('email');
+
+        $this->app['auth']->forgetGuards();
+        $this->postJson(self::API.'/auth/login', ['email' => 'JOAO@foco.TEST', 'password' => 'senhaForte123'])->assertOk();
+    }
 }

@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\Coupon;
+use App\Models\Promotion;
+use App\Models\Reserve;
 use App\Models\Room;
 use App\Services\Pricing\PriceCalculator;
 use Carbon\CarbonImmutable;
@@ -19,7 +21,12 @@ final class AvailabilitySearchService
         private readonly PriceCalculator $calculator,
     ) {}
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * Número fixo de consultas, independente da quantidade de quartos: reservas e promoções
+     * do período são carregadas de uma vez e distribuídas entre os quartos.
+     *
+     * @return list<array<string, mixed>>
+     */
     public function search(CarbonImmutable $checkIn, CarbonImmutable $checkOut, int $guests = 1, ?int $hotelId = null, ?string $couponCode = null): array
     {
         $rooms = Room::query()
@@ -29,6 +36,20 @@ final class AvailabilitySearchService
             ->when($hotelId, fn ($q) => $q->where('hotel_id', $hotelId))
             ->get();
 
+        $reserves = Reserve::query()
+            ->whereIn('room_id', $rooms->modelKeys())
+            ->active()
+            ->overlapping($checkIn, $checkOut)
+            ->get(['id', 'room_id', 'check_in', 'check_out'])
+            ->groupBy('room_id');
+
+        $promotions = Promotion::query()
+            ->where('active', true)
+            ->whereIn('hotel_id', $rooms->pluck('hotel_id')->unique()->all())
+            ->where('starts_at', '<=', $checkOut->subDay())
+            ->where('ends_at', '>=', $checkIn)
+            ->get();
+
         $coupon = $couponCode
             ? Coupon::query()->where('code', strtoupper(trim($couponCode)))->first()
             : null;
@@ -36,7 +57,11 @@ final class AvailabilitySearchService
         $results = [];
 
         foreach ($rooms as $room) {
-            $available = $this->availability->availableUnits($room, $checkIn, $checkOut);
+            $available = $this->availability->availableUnits($room, $checkIn, $checkOut, $reserves->get($room->id, collect()));
+
+            $room->setRelation('applicablePromotions', $promotions->filter(
+                fn (Promotion $p) => $p->hotel_id === $room->hotel_id && ($p->room_id === null || $p->room_id === $room->id)
+            )->values());
 
             if ($available === 0) {
                 continue;

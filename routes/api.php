@@ -59,6 +59,8 @@ Route::middleware(['auth:sanctum', 'throttle:staff'])->group(function () {
 
     Route::get('reserves/{reserve}/payments', [PaymentController::class, 'index'])->name('payments.index');
     Route::post('reserves/{reserve}/payments', [PaymentController::class, 'store'])->middleware(Idempotency::class)->name('payments.store');
+    Route::post('reserves/{reserve}/payments/{payment}/refund', [PaymentController::class, 'refund'])
+        ->scopeBindings()->middleware(Idempotency::class)->name('payments.refund');
 
     Route::get('coupons', [CouponController::class, 'index'])->name('coupons.index');
     Route::post('coupons', [CouponController::class, 'store'])->name('coupons.store');

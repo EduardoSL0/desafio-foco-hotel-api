@@ -36,7 +36,7 @@ class Idempotency
 
         // Escopo por rota e por usuário (ou IP, em rotas públicas) evita colisão entre clientes.
         $scope = hash('sha256', implode('|', [$request->method(), $request->path(), $request->user('sanctum')?->getAuthIdentifier() ?? $request->ip(), $key]));
-        $fingerprint = hash('sha256', $request->getContent());
+        $fingerprint = $this->fingerprint($request);
         $cacheKey = "idempotency:{$scope}";
 
         if ($cached = Cache::get($cacheKey)) {
@@ -71,6 +71,29 @@ class Idempotency
         } finally {
             $lock->release();
         }
+    }
+
+    /**
+     * Impressão digital do conteúdo: em JSON compara os dados (ordem das chaves e espaços
+     * não importam); em outros formatos, o corpo bruto.
+     */
+    private function fingerprint(Request $request): string
+    {
+        $data = json_decode($request->getContent(), true);
+
+        if (! is_array($data)) {
+            return hash('sha256', $request->getContent());
+        }
+
+        $normalize = function (array $value) use (&$normalize): array {
+            if (! array_is_list($value)) {
+                ksort($value);
+            }
+
+            return array_map(fn ($v) => is_array($v) ? $normalize($v) : $v, $value);
+        };
+
+        return hash('sha256', json_encode($normalize($data)));
     }
 
     private function replay(array $cached, string $fingerprint): Response

@@ -1,12 +1,15 @@
 # Variáveis comuns: têm prioridade sobre o .env, garantindo o MySQL do compose.
+# Senhas: os padrões abaixo servem só para avaliação local; em outro ambiente defina
+# DB_PASSWORD e MYSQL_ROOT_PASSWORD (ex.: num arquivo .env ao lado deste compose).
 x-app-env: &app-env
   DB_CONNECTION: mysql
   DB_HOST: mysql
   DB_PORT: 3306
   DB_DATABASE: foco_hotel
   DB_USERNAME: foco
-  DB_PASSWORD: secret
-  APP_URL: http://localhost:8080
+  DB_PASSWORD: ${DB_PASSWORD:-secret}
+  APP_URL: ${APP_URL:-http://localhost:8080}
+  APP_DEBUG: ${APP_DEBUG:-false}
   CACHE_STORE: database
   LOG_FILE_PERMISSION: "0666"
   # Limites de requisição por minuto (padrões da aplicação; podem ser ajustados por ambiente).
@@ -27,7 +30,8 @@ services:
     environment:
       <<: *app-env
       CONTAINER_ROLE: app
-      SEED_ON_START: "true"
+      # Dados e usuários de demonstração (senha "password"): só para avaliação.
+      SEED_ON_START: ${SEED_ON_START:-true}
     volumes:
       - ./:/var/www/html
       # vendor/ em volume do Docker (fora da pasta compartilhada): muito mais rápido no Docker Desktop.
@@ -67,6 +71,13 @@ services:
       - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - app
+    # /up responde 200 só com o PHP e o banco funcionando.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/up || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
 
   mysql:
     image: mysql:8.0
@@ -75,14 +86,15 @@ services:
     environment:
       MYSQL_DATABASE: foco_hotel
       MYSQL_USER: foco
-      MYSQL_PASSWORD: secret
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_PASSWORD: ${DB_PASSWORD:-secret}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+    # Publicado só para esta máquina (ferramentas como o MySQL Workbench); não fica exposto na rede.
     ports:
-      - "3307:3306"
+      - "127.0.0.1:3307:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p\"$$MYSQL_ROOT_PASSWORD\""]
       interval: 5s
       timeout: 5s
       retries: 20

@@ -6,6 +6,7 @@ use App\Models\Reserve;
 use App\Models\Room;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
+use Illuminate\Support\Collection;
 
 /**
  * Controla a disponibilidade considerando o inventário do quarto
@@ -14,9 +15,13 @@ use DateTimeInterface;
  */
 final class AvailabilityService
 {
-    public function availableUnits(Room $room, DateTimeInterface $checkIn, DateTimeInterface $checkOut): int
+    /**
+     * @param  Collection<int, Reserve>|null  $reserves  reservas ativas do quarto no período, já
+     *                                                   carregadas (busca em lote); null consulta o banco.
+     */
+    public function availableUnits(Room $room, DateTimeInterface $checkIn, DateTimeInterface $checkOut, ?Collection $reserves = null): int
     {
-        return max(0, $room->inventory - $this->peakOccupation($room, $checkIn, $checkOut));
+        return max(0, $room->inventory - $this->peakOccupation($room, $checkIn, $checkOut, $reserves));
     }
 
     public function isAvailable(Room $room, DateTimeInterface $checkIn, DateTimeInterface $checkOut): bool
@@ -24,16 +29,17 @@ final class AvailabilityService
         return $this->availableUnits($room, $checkIn, $checkOut) > 0;
     }
 
-    public function peakOccupation(Room $room, DateTimeInterface $checkIn, DateTimeInterface $checkOut): int
+    /** @param  Collection<int, Reserve>|null  $reserves */
+    public function peakOccupation(Room $room, DateTimeInterface $checkIn, DateTimeInterface $checkOut, ?Collection $reserves = null): int
     {
         $in = CarbonImmutable::instance($checkIn)->startOfDay();
         $out = CarbonImmutable::instance($checkOut)->startOfDay();
 
-        $reserves = Reserve::query()
+        $reserves ??= Reserve::query()
             ->where('room_id', $room->id)
             ->active()
             ->overlapping($in, $out)
-            ->get(['id', 'check_in', 'check_out']);
+            ->get(['id', 'room_id', 'check_in', 'check_out']);
 
         if ($reserves->isEmpty()) {
             return 0;

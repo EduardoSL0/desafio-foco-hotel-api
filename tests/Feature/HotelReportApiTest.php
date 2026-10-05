@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\PaymentMethod;
+use App\Models\Coupon;
 use App\Models\Hotel;
 use App\Models\Reserve;
 use App\Models\Room;
@@ -93,5 +94,46 @@ class HotelReportApiTest extends TestCase
         $hotel = Hotel::factory()->create();
 
         $this->getJson(self::API."/hotels/{$hotel->id}/report")->assertUnauthorized();
+    }
+
+    public function test_only_from_uses_the_whole_month_of_that_date(): void
+    {
+        $hotel = Hotel::factory()->create();
+        Sanctum::actingAs(User::factory()->admin()->create());
+
+        $this->getJson(self::API."/hotels/{$hotel->id}/report?from=2030-03-10")
+            ->assertOk()
+            ->assertJsonPath('data.period.from', '2030-03-10')
+            ->assertJsonPath('data.period.to', '2030-03-31')
+            ->assertJsonPath('data.period.days', 22);
+
+        $this->getJson(self::API."/hotels/{$hotel->id}/report?to=2030-03-10")
+            ->assertOk()
+            ->assertJsonPath('data.period.from', '2030-03-01');
+    }
+
+    public function test_room_revenue_includes_coupon_discount(): void
+    {
+        $hotel = Hotel::factory()->withServiceFee(10)->create();
+        $room = Room::factory()->for($hotel)->create(['daily_price' => 100, 'inventory' => 1]);
+        Coupon::factory()->create(['code' => 'DEZ', 'value' => 10]);
+
+        $amounts = $this->postJson(self::API.'/reserves', [
+            'room_id' => $room->id,
+            'check_in' => now()->addDays(3)->toDateString(),
+            'check_out' => now()->addDays(6)->toDateString(),
+            'guests' => [['name' => 'Ana', 'last_name' => 'Souza', 'phone' => '5571999990001']],
+            'coupon_code' => 'DEZ',
+        ])->assertCreated()->json('data.amounts');
+
+        Sanctum::actingAs(User::factory()->admin()->create());
+        $from = now()->addDays(3)->toDateString();
+        $to = now()->addDays(5)->toDateString();
+
+        // 3 × 100 - 10% de cupom = 270 de hospedagem (a taxa de serviço não é receita de diária).
+        $this->assertSame(270.0, $amounts['subtotal'] - $amounts['discount']);
+        $this->getJson(self::API."/hotels/{$hotel->id}/report?from={$from}&to={$to}")
+            ->assertJsonPath('data.revenue.room_revenue', 270.0)
+            ->assertJsonPath('data.revenue.adr', 90.0);
     }
 }

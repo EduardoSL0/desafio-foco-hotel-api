@@ -12,8 +12,10 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 /** Gestão da equipe do hotel (usuários e perfis de acesso). */
 class UserController extends Controller
@@ -61,16 +63,23 @@ class UserController extends Controller
     {
         Gate::authorize('update', $user);
 
-        $data = $request->validated();
+        $data = Arr::except($request->validated(), ['current_password']);
         $role = isset($data['role']) ? UserRole::from($data['role']) : $user->role;
         $hotelId = $role === UserRole::Admin
             ? null
             : (array_key_exists('hotel_id', $data) ? (int) $data['hotel_id'] : $user->hotel_id);
 
-        if (isset($data['role']) || array_key_exists('hotel_id', $data)) {
+        // Só é preciso permissão de atribuição quando o perfil ou o hotel realmente mudam
+        // (um PUT completo reenviando os mesmos valores não é promoção).
+        if ($role !== $user->role || $hotelId !== $user->hotel_id) {
             Gate::authorize('assign', [User::class, $role, $hotelId]);
         }
 
+        if ($user->isAdmin() && $role !== UserRole::Admin) {
+            $this->ensureAnotherAdminExists($user);
+        }
+
+        $before = ['role' => $user->role->value, 'hotel_id' => $user->hotel_id];
         $user->update([...$data, 'hotel_id' => $hotelId]);
 
         // Troca de senha invalida as sessões (tokens) existentes do usuário.
@@ -78,7 +87,13 @@ class UserController extends Controller
             $user->tokens()->delete();
         }
 
-        Log::info('user.updated', ['user_id' => $user->id, 'fields' => array_keys($data), 'by' => $request->user()->id]);
+        Log::info('user.updated', [
+            'user_id' => $user->id,
+            'fields' => array_keys($data),
+            'role' => ['from' => $before['role'], 'to' => $user->role->value],
+            'hotel_id' => ['from' => $before['hotel_id'], 'to' => $user->hotel_id],
+            'by' => $request->user()->id,
+        ]);
 
         return new UserResource($user);
     }
@@ -87,11 +102,25 @@ class UserController extends Controller
     {
         Gate::authorize('delete', $user);
 
+        if ($user->isAdmin()) {
+            $this->ensureAnotherAdminExists($user);
+        }
+
         $user->tokens()->delete();
         $user->delete();
 
         Log::info('user.deleted', ['user_id' => $user->id, 'by' => $request->user()->id]);
 
         return response()->noContent();
+    }
+
+    /** O sistema nunca fica sem administrador (ninguém conseguiria mais gerenciar os hotéis). */
+    private function ensureAnotherAdminExists(User $user): void
+    {
+        $others = User::query()->where('role', UserRole::Admin)->whereKeyNot($user->id)->exists();
+
+        if (! $others) {
+            throw ValidationException::withMessages(['role' => 'Este é o único administrador do sistema e não pode ser rebaixado ou excluído.']);
+        }
     }
 }

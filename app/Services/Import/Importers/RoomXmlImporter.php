@@ -56,10 +56,22 @@ final class RoomXmlImporter implements XmlEntityImporter
             }
 
             // withTrashed: um quarto removido pelo hoteleiro não é recriado nem duplicado.
-            $room = Room::withTrashed()->updateOrCreate(
-                ['external_code' => $code],
-                ['hotel_id' => $hotels[$hotelCode], 'name' => $name],
-            );
+            $room = Room::withTrashed()->where('external_code', $code)->first();
+
+            if ($room === null) {
+                $room = Room::create(['external_code' => $code, 'hotel_id' => $hotels[$hotelCode], 'name' => $name]);
+                $report->track('rooms', $room);
+
+                continue;
+            }
+
+            // Quarto já existente: o XML não o transfere de hotel (a API também proíbe) e não
+            // sobrescreve o nome, que o hoteleiro pode ter ajustado pela API.
+            if ($room->hotel_id !== (int) $hotels[$hotelCode]) {
+                $report->skipped('rooms', "Quarto {$code}: no XML pertence ao hotel {$hotelCode}, mas já está cadastrado em outro hotel; transferência ignorada.");
+
+                continue;
+            }
 
             $report->track('rooms', $room);
         }

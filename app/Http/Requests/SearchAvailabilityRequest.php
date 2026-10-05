@@ -20,6 +20,8 @@ class SearchAvailabilityRequest extends FormRequest
             'guests' => ['sometimes', 'integer', 'between:1,20'],
             'hotel_id' => ['sometimes', 'integer', 'exists:hotels,id'],
             'coupon_code' => ['nullable', 'string', 'max:40'],
+            'per_page' => ['sometimes', 'integer', 'between:1,100'],
+            'page' => ['sometimes', 'integer', 'between:1,10000'],
         ];
     }
 }

@@ -11,6 +11,7 @@ RUN apk add --no-cache libzip-dev zip unzip git \
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 COPY docker/php/php.ini /usr/local/etc/php/conf.d/zz-app.ini
+COPY docker/php/fpm-pool.conf /usr/local/etc/php-fpm.d/zz-pool.conf
 COPY docker/php/entrypoint.sh /usr/local/bin/entrypoint
 RUN chmod +x /usr/local/bin/entrypoint
 

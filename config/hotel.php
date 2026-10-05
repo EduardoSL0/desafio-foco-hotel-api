@@ -61,4 +61,20 @@ return [
         'token_ttl_hours' => (int) env('API_TOKEN_TTL_HOURS', 8),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Pré-reservas online
+    |--------------------------------------------------------------------------
+    |
+    | Reserva feita sem login e sem pagamento ocupa o quarto por este prazo
+    | (horas). Depois disso deixa de contar na disponibilidade e é cancelada
+    | pelo comando agendado "reserves:expire". Registrar um pagamento garante a
+    | reserva. 0 desativa a expiração.
+    |
+    */
+
+    'reservations' => [
+        'pending_ttl_hours' => (int) env('RESERVE_PENDING_TTL_HOURS', 24),
+    ],
+
 ];

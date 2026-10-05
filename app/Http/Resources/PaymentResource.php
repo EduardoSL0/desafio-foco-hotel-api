@@ -20,6 +20,7 @@ class PaymentResource extends ApiResource
             'interest' => (float) $this->interest,
             'source' => $this->source,
             'paid_at' => $this->paid_at?->toIso8601String(),
+            'refunded_at' => $this->refunded_at?->toIso8601String(),
         ];
     }
 }

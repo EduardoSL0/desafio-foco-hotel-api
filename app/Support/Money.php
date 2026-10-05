@@ -26,4 +26,37 @@ final class Money
     {
         return (int) round($cents * ((float) $percent) / 100);
     }
+
+    /**
+     * Divide um valor (em centavos) proporcionalmente aos pesos informados, sem perder
+     * centavos: a soma das partes é sempre igual ao valor (maiores restos recebem o centavo).
+     *
+     * @param  array<array-key, int>  $weights
+     * @return array<array-key, int>
+     */
+    public static function allocate(int $amount, array $weights): array
+    {
+        $total = array_sum($weights);
+
+        if ($amount <= 0 || $total <= 0) {
+            return array_map(fn () => 0, $weights);
+        }
+
+        $shares = [];
+        $remainders = [];
+
+        foreach ($weights as $key => $weight) {
+            $exact = $amount * $weight / $total;
+            $shares[$key] = (int) floor($exact);
+            $remainders[$key] = $exact - $shares[$key];
+        }
+
+        arsort($remainders);
+
+        foreach (array_slice(array_keys($remainders), 0, $amount - array_sum($shares)) as $key) {
+            $shares[$key]++;
+        }
+
+        return $shares;
+    }
 }

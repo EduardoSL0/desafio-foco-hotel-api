@@ -29,6 +29,7 @@ class Reserve extends Model
         'total',
         'status',
         'source',
+        'expires_at',
     ];
 
     protected function casts(): array
@@ -43,6 +44,7 @@ class Reserve extends Model
             'fees' => 'decimal:2',
             'total' => 'decimal:2',
             'status' => ReserveStatus::class,
+            'expires_at' => 'datetime',
         ];
     }
 
@@ -102,10 +104,24 @@ class Reserve extends Model
         return $this->hasMany(Payment::class);
     }
 
-    /** Reservas que ocupam inventário (todas exceto as canceladas). */
+    /** Reservas que ocupam inventário: exceto canceladas e pré-reservas pendentes já expiradas. */
     public function scopeActive(Builder $query): Builder
     {
-        return $query->where('status', '!=', ReserveStatus::Cancelled->value);
+        return $query
+            ->where('status', '!=', ReserveStatus::Cancelled->value)
+            ->where(fn (Builder $q) => $q
+                ->whereNull('expires_at')
+                ->orWhere('status', '!=', ReserveStatus::Pending->value)
+                ->orWhere('expires_at', '>', now()));
+    }
+
+    /** Pré-reservas pendentes cujo prazo para pagamento já passou. */
+    public function scopeExpired(Builder $query): Builder
+    {
+        return $query
+            ->where('status', ReserveStatus::Pending->value)
+            ->whereNotNull('expires_at')
+            ->where('expires_at', '<=', now());
     }
 
     /**
@@ -124,11 +140,12 @@ class Reserve extends Model
         return (int) $this->check_in->diffInDays($this->check_out);
     }
 
+    /** Valor efetivamente recebido (pagamentos estornados não contam). */
     public function paidAmount(): float
     {
         $sum = $this->relationLoaded('payments')
-            ? $this->payments->sum(fn (Payment $p) => Money::toCents($p->value))
-            : Money::toCents($this->payments()->sum('value'));
+            ? $this->payments->whereNull('refunded_at')->sum(fn (Payment $p) => Money::toCents($p->value))
+            : Money::toCents($this->payments()->whereNull('refunded_at')->sum('value'));
 
         return Money::fromCents((int) $sum);
     }
@@ -155,6 +172,11 @@ class Reserve extends Model
             $paid > 0 => ReserveStatus::PartiallyPaid,
             default => ReserveStatus::Pending,
         };
+
+        // Com pagamento registrado a reserva está garantida e deixa de expirar.
+        if ($this->status !== ReserveStatus::Pending) {
+            $this->expires_at = null;
+        }
 
         $this->save();
     }

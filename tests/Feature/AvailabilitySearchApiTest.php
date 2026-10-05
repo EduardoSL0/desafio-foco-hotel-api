@@ -7,6 +7,7 @@ use App\Models\Hotel;
 use App\Models\Reserve;
 use App\Models\Room;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class AvailabilitySearchApiTest extends TestCase
@@ -63,5 +64,34 @@ class AvailabilitySearchApiTest extends TestCase
     private function day(int $offset): string
     {
         return now()->addDays($offset)->toDateString();
+    }
+
+    public function test_results_are_paginated(): void
+    {
+        Room::factory()->count(3)->create();
+
+        $this->getJson(self::API.'/availability?check_in='.$this->day(5).'&check_out='.$this->day(6).'&per_page=2&page=2')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('meta.results', 3)
+            ->assertJsonPath('meta.current_page', 2)
+            ->assertJsonPath('meta.last_page', 2);
+    }
+
+    public function test_query_count_does_not_grow_with_the_number_of_rooms(): void
+    {
+        $count = function (): int {
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            $this->getJson(self::API.'/availability?check_in='.$this->day(5).'&check_out='.$this->day(7))->assertOk();
+
+            return count(DB::getQueryLog());
+        };
+
+        Room::factory()->count(2)->create();
+        $few = $count();
+        Room::factory()->count(20)->create();
+
+        $this->assertSame($few, $count());
     }
 }

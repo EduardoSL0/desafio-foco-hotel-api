@@ -25,13 +25,21 @@ class AvailabilitySearchController extends Controller
             $request->validated('coupon_code'),
         );
 
+        // Resultados já ordenados por preço; a página é recortada depois da ordenação.
+        $perPage = (int) $request->validated('per_page', 20);
+        $page = (int) $request->validated('page', 1);
+        $total = count($results);
+
         return response()->json([
-            'data' => $results,
+            'data' => array_slice($results, ($page - 1) * $perPage, $perPage),
             'meta' => [
                 'check_in' => $checkIn->toDateString(),
                 'check_out' => $checkOut->toDateString(),
                 'guests' => $guests,
-                'results' => count($results),
+                'results' => $total,
+                'current_page' => $page,
+                'per_page' => $perPage,
+                'last_page' => max(1, (int) ceil($total / $perPage)),
             ],
         ], 200, [], ApiResource::JSON_OPTIONS);
     }

@@ -7,6 +7,7 @@ use App\Enums\ReserveStatus;
 use App\Exceptions\ReserveCancelledException;
 use App\Models\Payment;
 use App\Models\Reserve;
+use App\Models\User;
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -14,12 +15,14 @@ use Illuminate\Validation\ValidationException;
 
 final class PaymentService
 {
+    private const ATTEMPTS = 3;
+
     /**
      * @param  array{method: int|string, value: int|float|string, installments?: int|string|null}  $data
      */
-    public function register(Reserve $reserve, array $data, string $errorPrefix = ''): Payment
+    public function register(Reserve $reserve, array $data, string $errorPrefix = '', ?User $actor = null): Payment
     {
-        return DB::transaction(function () use ($reserve, $data, $errorPrefix) {
+        return DB::transaction(function () use ($reserve, $data, $errorPrefix, $actor) {
             // Lock na reserva: pagamentos simultâneos são processados um por vez, então o
             // saldo lido abaixo é sempre o atual (sem isso, dois pagamentos podiam ultrapassar o total).
             $locked = Reserve::query()->lockForUpdate()->findOrFail($reserve->id);
@@ -64,10 +67,45 @@ final class PaymentService
                 'method' => $method->name,
                 'value' => $payment->value,
                 'installments' => $installments,
+                'by' => $actor?->id,
             ]);
 
             return $payment;
-        });
+        }, self::ATTEMPTS);
+    }
+
+    /**
+     * Estorno integral de um pagamento: ele deixa de abater o saldo e o status da reserva
+     * é recalculado (uma reserva cancelada continua cancelada). Pagamentos importados do
+     * XML são estornados no sistema de origem, pois a importação os recriaria.
+     */
+    public function refund(Reserve $reserve, Payment $payment, User $actor): Payment
+    {
+        return DB::transaction(function () use ($reserve, $payment, $actor) {
+            $locked = Reserve::query()->lockForUpdate()->findOrFail($reserve->id);
+            $reserve->setRawAttributes($locked->getAttributes(), true);
+            $payment = Payment::query()->whereKey($payment->id)->where('reserve_id', $reserve->id)->lockForUpdate()->firstOrFail();
+
+            if ($payment->isRefunded()) {
+                throw ValidationException::withMessages(['payment' => 'Este pagamento já foi estornado.']);
+            }
+
+            if ($payment->source === 'xml') {
+                throw ValidationException::withMessages(['payment' => 'Pagamentos importados do XML devem ser estornados no sistema de origem.']);
+            }
+
+            $payment->update(['refunded_at' => now(), 'refunded_by' => $actor->id]);
+            $reserve->refreshStatus();
+
+            Log::info('payment.refunded', [
+                'reserve_id' => $reserve->id,
+                'payment_id' => $payment->id,
+                'value' => $payment->value,
+                'by' => $actor->id,
+            ]);
+
+            return $payment;
+        }, self::ATTEMPTS);
     }
 
     /** Juros simples por parcela excedente às parcelas sem juros. */

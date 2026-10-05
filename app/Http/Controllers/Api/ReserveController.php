@@ -8,8 +8,11 @@ use App\Http\Requests\LookupReserveRequest;
 use App\Http\Requests\QuoteReserveRequest;
 use App\Http\Requests\StoreReserveRequest;
 use App\Http\Resources\ApiResource;
+use App\Http\Resources\PublicReserveResource;
 use App\Http\Resources\ReserveResource;
+use App\Models\Guest;
 use App\Models\Reserve;
+use App\Models\User;
 use App\Services\ReserveService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -49,21 +52,25 @@ class ReserveController extends Controller
     /**
      * "Minha reserva": o hóspede consulta com o localizador + sobrenome de um dos hóspedes.
      * A resposta é a mesma (404) para código inexistente ou sobrenome errado, para não
-     * revelar se um localizador existe.
+     * revelar se um localizador existe. Devolve a visão pública (sem contatos dos hóspedes
+     * nem lista de pagamentos).
      */
-    public function lookup(LookupReserveRequest $request): ReserveResource|JsonResponse
+    public function lookup(LookupReserveRequest $request): PublicReserveResource|JsonResponse
     {
         $reserve = Reserve::query()
             ->where('code', $request->validated('code'))
-            ->whereHas('guests', fn ($q) => $q->whereRaw('LOWER(last_name) = ?', [mb_strtolower(trim($request->validated('last_name')))]))
             ->with(['hotel', 'room', 'coupon', 'guests', 'dailies', 'payments'])
             ->first();
 
-        if ($reserve === null) {
+        // Comparação em PHP (mb_strtolower): acentos funcionam igual em MySQL e SQLite.
+        $lastName = mb_strtolower(trim($request->validated('last_name')));
+        $matches = $reserve?->guests->contains(fn (Guest $g) => mb_strtolower(trim($g->last_name)) === $lastName);
+
+        if (! $matches) {
             return response()->json(['message' => 'Reserva não encontrada. Confira o localizador e o sobrenome.'], 404);
         }
 
-        return new ReserveResource($reserve);
+        return new PublicReserveResource($reserve);
     }
 
     /** Cotação: calcula diárias, descontos e taxas sem criar a reserva. */
@@ -72,18 +79,28 @@ class ReserveController extends Controller
         return response()->json(['data' => $this->service->quote($request->validated())], 200, [], ApiResource::JSON_OPTIONS);
     }
 
+    /**
+     * A equipe do hotel recebe a reserva completa; o público (motor de reservas) recebe a
+     * visão pública, que não devolve contatos de hóspedes já cadastrados.
+     */
     public function store(StoreReserveRequest $request): JsonResponse
     {
-        $reserve = $this->service->create($request->validated());
+        /** @var User|null $actor */
+        $actor = $request->user('sanctum');
+        $reserve = $this->service->create($request->validated(), $actor);
 
-        return (new ReserveResource($reserve))->response()->setStatusCode(201);
+        $resource = $actor?->worksAt($reserve->hotel_id)
+            ? new ReserveResource($reserve)
+            : new PublicReserveResource($reserve);
+
+        return $resource->response()->setStatusCode(201);
     }
 
-    public function cancel(Reserve $reserve): ReserveResource
+    public function cancel(Request $request, Reserve $reserve): ReserveResource
     {
         Gate::authorize('cancel', $reserve);
 
-        $reserve = $this->service->cancel($reserve);
+        $reserve = $this->service->cancel($reserve, $request->user());
 
         return new ReserveResource($reserve->load(['hotel', 'room', 'coupon', 'guests', 'dailies', 'payments']));
     }

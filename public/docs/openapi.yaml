@@ -285,6 +285,9 @@ paths:
         confirmação) e o **sobrenome** de um dos hóspedes. Os dados vão no corpo, não na URL, para não
         ficarem em logs de servidores. Código inexistente e sobrenome errado retornam o mesmo 404.
         Limite de 10 tentativas por minuto.
+
+        A resposta é a **visão pública**: nomes dos hóspedes, datas, valores e saldo, sem telefone,
+        e-mail nem lista de pagamentos (quem tem o localizador não é necessariamente titular de todos os dados).
       requestBody:
         required: true
         content:
@@ -303,7 +306,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  data: { $ref: "#/components/schemas/Reserve" }
+                  data: { $ref: "#/components/schemas/PublicReserve" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
@@ -373,6 +376,13 @@ paths:
         4. registra hóspedes, diárias e pagamentos iniciais em uma única transação
            (pagamentos junto com a reserva apenas pela equipe autenticada do hotel);
         5. gera o localizador (`code`) e envia e-mail de confirmação ao hóspede, se houver e-mail.
+
+        **Pré-reserva:** sem login da equipe do hotel, a reserva nasce `pending` com prazo
+        (`expires_at`, padrão 24 h, `RESERVE_PENDING_TTL_HOURS`). Sem pagamento até lá, ela deixa de ocupar
+        o quarto e é cancelada pelo agendador. Registrar um pagamento garante a reserva.
+
+        **Resposta:** a equipe do hotel recebe a reserva completa (`Reserve`); o público recebe a visão
+        pública (`PublicReserve`), que não devolve contatos de hóspedes já cadastrados.
       requestBody:
         required: true
         content:
@@ -387,13 +397,16 @@ paths:
                 - { name: Maria, last_name: Souza, phone: "5571999990000", email: maria@example.com }
       responses:
         '201':
-          description: Reserva criada
+          description: Reserva criada (completa para a equipe do hotel; visão pública para os demais)
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  data: { $ref: '#/components/schemas/Reserve' }
+                  data:
+                    anyOf:
+                      - { $ref: '#/components/schemas/Reserve' }
+                      - { $ref: '#/components/schemas/PublicReserve' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -487,6 +500,38 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /reserves/{reserve}/payments/{payment}/refund:
+    post:
+      operationId: postReservesReservePaymentsPaymentRefund
+      tags: [Pagamentos]
+      summary: Estorna um pagamento (admin/manager)
+      description: |
+        Estorno integral: o pagamento deixa de abater o saldo, e o status da reserva é recalculado
+        (uma reserva cancelada continua cancelada). Também é o caminho para devolver o dinheiro de uma
+        reserva cancelada. Pagamentos importados do XML são estornados no sistema de origem (422).
+        Aceita `Idempotency-Key`.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/ReserveId' }
+        - { name: payment, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Pagamento estornado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Payment' }
+                  reserve:
+                    type: object
+                    properties:
+                      status: { $ref: '#/components/schemas/ReserveStatus' }
+                      balance: { type: number, example: 300.0 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /coupons:
     get:
       operationId: getCoupons
@@ -531,6 +576,7 @@ paths:
       operationId: deleteCouponsCoupon
       tags: [Cupons]
       summary: Remove um cupom
+      description: Cupom já usado em reservas é apenas desativado (preserva o histórico das reservas).
       security: [{ bearerAuth: [] }]
       parameters:
         - { name: coupon, in: path, required: true, schema: { type: integer } }
@@ -553,6 +599,8 @@ paths:
         - { name: guests, in: query, schema: { type: integer, default: 1 }, example: 2 }
         - { name: hotel_id, in: query, schema: { type: integer } }
         - { name: coupon_code, in: query, schema: { type: string }, example: BEMVINDO10 }
+        - { name: per_page, in: query, schema: { type: integer, default: 20, minimum: 1, maximum: 100 } }
+        - { name: page, in: query, schema: { type: integer, default: 1, minimum: 1 } }
       responses:
         "200":
           description: Resultados da busca
@@ -570,7 +618,10 @@ paths:
                       check_in: { type: string, format: date }
                       check_out: { type: string, format: date }
                       guests: { type: integer }
-                      results: { type: integer }
+                      results: { type: integer, description: Total de quartos encontrados (todas as páginas) }
+                      current_page: { type: integer }
+                      per_page: { type: integer }
+                      last_page: { type: integer }
         "422": { $ref: "#/components/responses/ValidationError" }
 
   /hotels/{hotel}/report:
@@ -586,8 +637,8 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters:
         - { $ref: "#/components/parameters/HotelId" }
-        - { name: from, in: query, schema: { type: string, format: date }, example: "2022-12-01", description: "Padrão: início do mês atual. Dez/2022 tem os dados do XML." }
-        - { name: to, in: query, schema: { type: string, format: date }, example: "2022-12-31", description: "Padrão: fim do mês atual." }
+        - { name: from, in: query, schema: { type: string, format: date }, example: "2022-12-01", description: "Padrão: início do mês de `to` (ou do mês atual). Dez/2022 tem os dados do XML." }
+        - { name: to, in: query, schema: { type: string, format: date }, example: "2022-12-31", description: "Padrão: fim do mês de `from` (ou do mês atual). Não pode ser anterior a `from`." }
       responses:
         "200":
           description: Relatório
@@ -656,6 +707,20 @@ paths:
         "200": { description: OK }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      operationId: putPromotionsPromotion
+      tags: [Promoções]
+      summary: Atualiza uma promoção (mesmas regras do PATCH)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromotionUpdate" }
+      responses:
+        "200": { description: Atualizada }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
     patch:
       operationId: patchPromotionsPromotion
       tags: [Promoções]
@@ -705,8 +770,9 @@ paths:
       tags: [Usuários]
       summary: Cadastra um usuário
       description: |
-        Admin cadastra qualquer perfil. Gerente cadastra gerentes/recepcionistas apenas no próprio hotel
-        (hotel_id pode ser omitido). Senha mínima de 8 caracteres com letras e números.
+        Admin cadastra qualquer perfil. Gerente cadastra apenas recepcionistas do próprio hotel
+        (hotel_id pode ser omitido); criar gerentes e administradores é exclusivo do admin.
+        Senha mínima de 8 caracteres com letras e números. O e-mail é gravado em minúsculas.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -731,15 +797,33 @@ paths:
     get:
       operationId: getUsersUser
       tags: [Usuários]
-      summary: Detalha um usuário (o próprio ou da equipe gerenciada)
+      summary: Detalha um usuário (o próprio ou da equipe do hotel)
       security: [{ bearerAuth: [] }]
       responses:
         "200": { description: OK }
         "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      operationId: putUsersUser
+      tags: [Usuários]
+      summary: Atualiza um usuário (mesmas regras do PATCH)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserUpdate" }
+      responses:
+        "200": { description: Atualizado }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
     patch:
       operationId: patchUsersUser
       tags: [Usuários]
       summary: Atualiza um usuário (troca de senha revoga os tokens ativos)
+      description: |
+        Gerente altera os recepcionistas do próprio hotel e o próprio cadastro (sem mudar o perfil).
+        Para trocar a **própria** senha é obrigatório informar `current_password`.
+        O único administrador do sistema não pode ser rebaixado nem excluído.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -859,6 +943,7 @@ components:
         name: { type: string, example: Ana Souza }
         email: { type: string, format: email, example: ana.souza@foco.test }
         password: { type: string, format: password, minLength: 8, example: novaSenha456 }
+        current_password: { type: string, format: password, description: "Obrigatória ao trocar a própria senha" }
         role: { type: string, enum: [admin, manager, receptionist], example: receptionist }
         hotel_id: { type: integer, nullable: true, example: 1, description: "Obrigatório para manager/receptionist; proibido para admin" }
 
@@ -917,9 +1002,10 @@ components:
           type: object
           properties:
             by_status: { type: object, additionalProperties: { type: integer } }
-            booked_amount: { type: number }
-            paid_amount: { type: number }
-            outstanding_amount: { type: number }
+            booked_amount: { type: number, description: Total vendido (reservas ativas) }
+            paid_amount: { type: number, description: "Recebido e não estornado (inclui reservas canceladas ainda não reembolsadas)" }
+            refunded_amount: { type: number, description: Total estornado }
+            outstanding_amount: { type: number, description: Saldo a receber das reservas ativas }
         top_rooms:
           type: array
           items:
@@ -1078,6 +1164,7 @@ components:
         external_code: { type: string, nullable: true }
         status: { $ref: '#/components/schemas/ReserveStatus' }
         source: { type: string, enum: [api, xml] }
+        expires_at: { type: string, format: date-time, nullable: true, description: "Pré-reserva sem pagamento: deixa de ocupar o quarto após esta data" }
         hotel: { $ref: '#/components/schemas/Hotel' }
         room: { $ref: '#/components/schemas/Room' }
         coupon_code: { type: string, nullable: true }
@@ -1109,6 +1196,49 @@ components:
           items: { $ref: '#/components/schemas/Payment' }
         created_at: { type: string, format: date-time }
 
+    PublicReserve:
+      type: object
+      description: Visão do hóspede (rotas públicas), sem contatos dos hóspedes nem lista de pagamentos.
+      properties:
+        id: { type: integer }
+        code: { type: string, example: FH7K3Q9X }
+        status: { $ref: '#/components/schemas/ReserveStatus' }
+        expires_at: { type: string, format: date-time, nullable: true }
+        hotel:
+          type: object
+          properties:
+            id: { type: integer }
+            name: { type: string }
+        room:
+          type: object
+          properties:
+            id: { type: integer }
+            name: { type: string }
+        coupon_code: { type: string, nullable: true }
+        check_in: { type: string, format: date }
+        check_out: { type: string, format: date }
+        nights: { type: integer }
+        amounts:
+          type: object
+          properties:
+            subtotal: { type: number }
+            discount: { type: number }
+            fees: { type: number }
+            total: { type: number }
+            paid: { type: number }
+            balance: { type: number }
+        guests:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              last_name: { type: string }
+        dailies:
+          type: array
+          items: { $ref: '#/components/schemas/Daily' }
+        created_at: { type: string, format: date-time }
+
     Payment:
       type: object
       properties:
@@ -1121,6 +1251,7 @@ components:
         interest: { type: number, example: 5.97 }
         source: { type: string, enum: [api, xml] }
         paid_at: { type: string, format: date-time, nullable: true }
+        refunded_at: { type: string, format: date-time, nullable: true, description: Preenchido quando o pagamento foi estornado }
 
     Coupon:
       type: object
@@ -1146,5 +1277,5 @@ components:
         value: { type: number, example: 15 }
         valid_from: { type: string, format: date, example: "2027-03-10" }
         valid_until: { type: string, format: date, example: "2027-03-31" }
-        max_uses: { type: integer, minimum: 1, nullable: true, example: 100, description: Vazio = ilimitado }
+        max_uses: { type: integer, minimum: 1, maximum: 1000000, nullable: true, example: 100, description: Vazio = ilimitado }
         active: { type: boolean, default: true }

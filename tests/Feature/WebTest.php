@@ -23,4 +23,14 @@ class WebTest extends TestCase
         $this->assertFileExists(public_path('docs/index.html'));
         $this->assertStringContainsString('openapi: 3.0.0', file_get_contents(public_path('docs/openapi.yaml')));
     }
+
+    public function test_api_index_links_ignore_the_host_header(): void
+    {
+        config(['app.url' => 'http://localhost:8080']);
+
+        $this->getJson('/api', ['Host' => 'evil.example'])
+            ->assertOk()
+            ->assertJsonPath('docs', 'http://localhost:8080/docs/')
+            ->assertJsonPath('api', 'http://localhost:8080/api/v1');
+    }
 }

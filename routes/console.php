@@ -16,7 +16,18 @@ use Illuminate\Support\Facades\Schedule;
 |
 */
 
+// O resultado de cada execução fica em storage/logs/import-AAAA-MM-DD.log (rotação diária).
+// A trava contra execuções simultâneas expira em 10 minutos: se o processo morrer no meio
+// (a transação é desfeita), a próxima execução não fica bloqueada por 24h.
 Schedule::command('import:xml')
     ->cron(config('hotel.import.schedule'))
-    ->withoutOverlapping()
-    ->appendOutputTo(storage_path('logs/import-cron.log'));
+    ->withoutOverlapping(10);
+
+// Pré-reservas online sem pagamento cujo prazo venceu.
+Schedule::command('reserves:expire')
+    ->everyFiveMinutes()
+    ->withoutOverlapping(10);
+
+// Remove tokens de acesso vencidos há mais de 24h.
+Schedule::command('sanctum:prune-expired --hours=24')
+    ->daily();

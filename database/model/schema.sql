@@ -139,6 +139,7 @@ CREATE TABLE reserves (
     total         DECIMAL(10,2)   NOT NULL,
     status        VARCHAR(20)     NOT NULL DEFAULT 'pending' COMMENT 'pending | partially_paid | paid | cancelled',
     source        VARCHAR(20)     NOT NULL DEFAULT 'api' COMMENT 'api | xml',
+    expires_at    TIMESTAMP       NULL COMMENT 'Pré-reserva online sem pagamento: deixa de ocupar o quarto após este momento',
     created_at    TIMESTAMP       NULL,
     updated_at    TIMESTAMP       NULL,
     PRIMARY KEY (id),
@@ -146,6 +147,8 @@ CREATE TABLE reserves (
     UNIQUE KEY reserves_external_code_unique (external_code),
     KEY reserves_room_id_check_in_check_out_index (room_id, check_in, check_out),
     KEY reserves_status_index (status),
+    KEY reserves_status_expires_at_index (status, expires_at),
+    KEY reserves_hotel_id_check_in_index (hotel_id, check_in),
     CONSTRAINT reserves_hotel_id_foreign  FOREIGN KEY (hotel_id)  REFERENCES hotels (id)  ON DELETE RESTRICT,
     CONSTRAINT reserves_room_id_foreign   FOREIGN KEY (room_id)   REFERENCES rooms (id)   ON DELETE RESTRICT,
     CONSTRAINT reserves_coupon_id_foreign FOREIGN KEY (coupon_id) REFERENCES coupons (id) ON DELETE SET NULL
@@ -164,11 +167,12 @@ CREATE TABLE dailies (
     reserve_id BIGINT UNSIGNED NOT NULL,
     date       DATE            NOT NULL,
     value      DECIMAL(10,2)   NOT NULL COMMENT 'Valor bruto da diária',
-    discount   DECIMAL(10,2)   NOT NULL DEFAULT 0 COMMENT 'Desconto promocional aplicado à diária',
+    discount   DECIMAL(10,2)   NOT NULL DEFAULT 0 COMMENT 'Desconto da diária (promoção + parte proporcional do cupom/desconto da reserva)',
     created_at TIMESTAMP       NULL,
     updated_at TIMESTAMP       NULL,
     PRIMARY KEY (id),
-    KEY dailies_reserve_id_date_index (reserve_id, date),
+    UNIQUE KEY dailies_reserve_id_date_unique (reserve_id, date),
+    KEY dailies_date_reserve_id_index (date, reserve_id),
     CONSTRAINT dailies_reserve_id_foreign FOREIGN KEY (reserve_id) REFERENCES reserves (id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -181,8 +185,11 @@ CREATE TABLE payments (
     interest     DECIMAL(10,2)    NOT NULL DEFAULT 0 COMMENT 'Juros de parcelamento cobrados do hóspede',
     source       VARCHAR(20)      NOT NULL DEFAULT 'api' COMMENT 'api | xml',
     paid_at      TIMESTAMP        NULL,
+    refunded_at  TIMESTAMP        NULL COMMENT 'Estorno: o pagamento deixa de abater o saldo da reserva',
+    refunded_by  BIGINT UNSIGNED  NULL,
     created_at   TIMESTAMP        NULL,
     updated_at   TIMESTAMP        NULL,
     PRIMARY KEY (id),
-    CONSTRAINT payments_reserve_id_foreign FOREIGN KEY (reserve_id) REFERENCES reserves (id) ON DELETE CASCADE
+    CONSTRAINT payments_reserve_id_foreign  FOREIGN KEY (reserve_id)  REFERENCES reserves (id) ON DELETE CASCADE,
+    CONSTRAINT payments_refunded_by_foreign FOREIGN KEY (refunded_by) REFERENCES users (id)    ON DELETE SET NULL
 ) ENGINE=InnoDB;

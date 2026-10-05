@@ -13,7 +13,10 @@ use App\Services\Pricing\Rules\PromotionRule;
 use App\Services\Pricing\Rules\ServiceFeeRule;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Foundation\Events\DiagnosingHealth;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
@@ -45,10 +48,16 @@ class AppServiceProvider extends ServiceProvider
         // Em desenvolvimento, falha cedo ao tentar preencher atributos não permitidos (mass assignment).
         Model::preventSilentlyDiscardingAttributes(! $this->app->isProduction());
 
+        // Em produção, migrate:fresh, db:wipe e similares são bloqueados (mesmo com --force).
+        DB::prohibitDestructiveCommands($this->app->isProduction());
+
+        // GET /up também confere o banco: com o MySQL fora do ar a verificação de saúde falha.
+        Event::listen(DiagnosingHealth::class, fn () => DB::connection()->getPdo());
+
         $this->configureRateLimiting();
 
         // Parâmetros de rota numéricos: "1'" ou "1 OR 1=1" retornam 404 em vez de serem lidos como 1.
-        Route::patterns(array_fill_keys(['hotel', 'room', 'reserve', 'user', 'promotion', 'coupon'], '[0-9]+'));
+        Route::patterns(array_fill_keys(['hotel', 'room', 'reserve', 'user', 'promotion', 'coupon', 'payment'], '[0-9]+'));
     }
 
     /**

@@ -23,7 +23,8 @@ class ImportXmlCommandTest extends TestCase
         $this->assertDatabaseCount('hotels', 3);
         $this->assertDatabaseCount('rooms', 6);
         $this->assertDatabaseCount('reserves', 6);
-        $this->assertDatabaseCount('dailies', 18);
+        // 18 diárias no XML, 1 delas fora do período da reserva 6 (ignorada).
+        $this->assertDatabaseCount('dailies', 17);
         $this->assertDatabaseCount('payments', 1);
         // "Fulaninho de Tal" aparece em duas reservas com o mesmo telefone: 1 hóspede só.
         $this->assertDatabaseCount('guests', 5);
@@ -65,11 +66,15 @@ class ImportXmlCommandTest extends TestCase
         $this->assertNull(Room::query()->where('external_code', '5')->value('daily_price'));
     }
 
-    public function test_reports_daily_outside_reserve_period(): void
+    public function test_ignores_daily_outside_reserve_period(): void
     {
         $this->artisan('import:xml')
-            ->expectsOutputToContain('Reserva 6: diária 2022-12-03 fora do período')
+            ->expectsOutputToContain('Reserva 6: diária 2022-12-03 fora do período 2022-10-01 a 2022-10-04 ignorada')
             ->assertSuccessful();
+
+        $reserve = Reserve::query()->where('external_code', '6')->with('dailies')->first();
+
+        $this->assertSame(['2022-10-01', '2022-10-02'], $reserve->dailies->map(fn ($d) => $d->date->toDateString())->sort()->values()->all());
     }
 
     public function test_import_is_idempotent(): void
@@ -80,7 +85,7 @@ class ImportXmlCommandTest extends TestCase
         $this->assertDatabaseCount('hotels', 3);
         $this->assertDatabaseCount('rooms', 6);
         $this->assertDatabaseCount('reserves', 6);
-        $this->assertDatabaseCount('dailies', 18);
+        $this->assertDatabaseCount('dailies', 17);
         $this->assertDatabaseCount('payments', 1);
         $this->assertDatabaseCount('guests', 5);
     }
@@ -199,5 +204,87 @@ class ImportXmlCommandTest extends TestCase
         $this->beforeApplicationDestroyed(fn () => File::deleteDirectory($dir));
 
         return $dir;
+    }
+
+    public function test_ignores_repeated_daily_dates(): void
+    {
+        $dir = $this->fixtureDirectory(<<<'XML'
+            <Reserves>
+                <Reserve id="90" hotelCode="1" roomCode="1">
+                    <CheckIn>2030-01-01</CheckIn><CheckOut>2030-01-02</CheckOut><Total>100.00</Total>
+                    <Dailies>
+                        <Daily><Date>2030-01-01</Date><Value>100.00</Value></Daily>
+                        <Daily><Date>2030-01-01</Date><Value>100.00</Value></Daily>
+                    </Dailies>
+                </Reserve>
+            </Reserves>
+            XML);
+
+        $this->artisan('import:xml', ['--path' => $dir])
+            ->expectsOutputToContain('diária 2030-01-01 repetida no arquivo')
+            ->assertSuccessful();
+
+        $this->assertCount(1, Reserve::query()->where('external_code', '90')->firstOrFail()->dailies);
+    }
+
+    public function test_reserve_discount_is_spread_over_the_dailies(): void
+    {
+        $dir = $this->fixtureDirectory(<<<'XML'
+            <Reserves>
+                <Reserve id="91" hotelCode="1" roomCode="1">
+                    <CheckIn>2030-01-01</CheckIn><CheckOut>2030-01-04</CheckOut><Total>200.00</Total>
+                    <Dailies>
+                        <Daily><Date>2030-01-01</Date><Value>100.00</Value></Daily>
+                        <Daily><Date>2030-01-02</Date><Value>100.00</Value></Daily>
+                        <Daily><Date>2030-01-03</Date><Value>100.00</Value></Daily>
+                    </Dailies>
+                </Reserve>
+            </Reserves>
+            XML);
+
+        $this->artisan('import:xml', ['--path' => $dir])->assertSuccessful();
+
+        $reserve = Reserve::query()->where('external_code', '91')->with('dailies')->firstOrFail();
+        $this->assertSame(100.0, (float) $reserve->discount);
+        // 100,00 de desconto em 3 noites: 33,34 + 33,33 + 33,33 (sem perder centavos).
+        $this->assertSame(10000, (int) round($reserve->dailies->sum(fn ($d) => $d->discount * 100)));
+        $this->assertSame(20000, (int) round($reserve->dailies->sum(fn ($d) => ($d->value - $d->discount) * 100)));
+    }
+
+    public function test_reimport_does_not_move_room_to_another_hotel_or_overwrite_its_name(): void
+    {
+        $this->artisan('import:xml')->assertSuccessful();
+        $room = Room::query()->where('external_code', '1')->firstOrFail();
+        $room->update(['name' => 'Suíte renomeada pelo hoteleiro']);
+        $originalHotel = $room->hotel_id;
+
+        $dir = sys_get_temp_dir().'/foco-import-'.uniqid();
+        File::ensureDirectoryExists($dir);
+        File::copy(database_path('xml/hotels.xml'), "{$dir}/hotels.xml");
+        File::put("{$dir}/rooms.xml", '<Rooms><Room id="1" hotelCode="2"><Name>Room 1 Hotel 1</Name></Room></Rooms>');
+        File::put("{$dir}/reserves.xml", '<Reserves/>');
+        $this->beforeApplicationDestroyed(fn () => File::deleteDirectory($dir));
+
+        $this->artisan('import:xml', ['--path' => $dir])
+            ->expectsOutputToContain('transferência ignorada')
+            ->assertSuccessful();
+
+        $room->refresh();
+        $this->assertSame($originalHotel, $room->hotel_id);
+        $this->assertSame('Suíte renomeada pelo hoteleiro', $room->name);
+    }
+
+    public function test_warns_when_xml_overbooks_a_room(): void
+    {
+        $dir = $this->fixtureDirectory(<<<'XML'
+            <Reserves>
+                <Reserve id="92" hotelCode="1" roomCode="1"><CheckIn>2031-01-01</CheckIn><CheckOut>2031-01-03</CheckOut><Total>200.00</Total></Reserve>
+                <Reserve id="93" hotelCode="1" roomCode="1"><CheckIn>2031-01-02</CheckIn><CheckOut>2031-01-04</CheckOut><Total>200.00</Total></Reserve>
+            </Reserves>
+            XML);
+
+        $this->artisan('import:xml', ['--path' => $dir])
+            ->expectsOutputToContain('overbooking vindo do XML')
+            ->assertSuccessful();
     }
 }

@@ -8,6 +8,7 @@ use App\Models\Guest;
 use App\Models\Hotel;
 use App\Models\Reserve;
 use App\Models\Room;
+use App\Services\AvailabilityService;
 use App\Services\Import\Contracts\XmlEntityImporter;
 use App\Services\Import\ImportReport;
 use App\Support\Money;
@@ -125,16 +126,22 @@ final class ReserveXmlImporter implements XmlEntityImporter
             $reserve->save();
             $report->track('reserves', $reserve);
 
+            // O desconto da reserva (total menor que a soma das diárias) é rateado entre as
+            // diárias, para a receita do relatório bater com o total.
+            $shares = Money::allocate(max(0, $subtotal - $total), array_column($dailies, 'cents'));
+
             $reserve->dailies()->delete();
             $reserve->dailies()->createMany(array_map(
-                fn (array $d) => ['date' => $d['date'], 'value' => Money::fromCents($d['cents']), 'discount' => 0],
+                fn (array $d, int $share) => ['date' => $d['date'], 'value' => Money::fromCents($d['cents']), 'discount' => Money::fromCents($share)],
                 $dailies,
+                $shares,
             ));
 
             $reserve->guests()->sync($this->guests($node, $label, $report));
             $this->payments($reserve, $node, $label, $report);
             $reserve->refreshStatus();
 
+            $this->warnOverbooking($reserve, $room, $label, $report);
             $this->backfillRoomRate($room, $dailies);
         }
     }
@@ -153,8 +160,18 @@ final class ReserveXmlImporter implements XmlEntityImporter
                 continue;
             }
 
+            // Diária fora de [check-in, check-out) não é uma noite da estadia: gravá-la inflaria
+            // ocupação e receita do relatório em um mês em que o hóspede não esteve no hotel.
             if ($date->lt($in) || $date->gte($out)) {
-                $report->warning("{$label}: diária {$date->toDateString()} fora do período {$in->toDateString()} a {$out->toDateString()}.");
+                $report->warning("{$label}: diária {$date->toDateString()} fora do período {$in->toDateString()} a {$out->toDateString()} ignorada.");
+
+                continue;
+            }
+
+            if (isset($dailies[$date->toDateString()])) {
+                $report->warning("{$label}: diária {$date->toDateString()} repetida no arquivo; mantida a primeira ocorrência.");
+
+                continue;
             }
 
             $cents = Money::toCents((string) $daily->Value);
@@ -165,10 +182,10 @@ final class ReserveXmlImporter implements XmlEntityImporter
                 continue;
             }
 
-            $dailies[] = ['date' => $date->toDateString(), 'cents' => $cents];
+            $dailies[$date->toDateString()] = ['date' => $date->toDateString(), 'cents' => $cents];
         }
 
-        return $dailies;
+        return array_values($dailies);
     }
 
     /** @return list<int> */
@@ -222,6 +239,23 @@ final class ReserveXmlImporter implements XmlEntityImporter
                 'interest' => 0,
                 'source' => 'xml',
             ]);
+        }
+    }
+
+    /**
+     * O XML é a fonte da verdade do canal de vendas, então a reserva é gravada mesmo assim,
+     * mas o hoteleiro é avisado de que o quarto ficou vendido acima do inventário.
+     */
+    private function warnOverbooking(Reserve $reserve, Room $room, string $label, ImportReport $report): void
+    {
+        if ($reserve->status === ReserveStatus::Cancelled) {
+            return;
+        }
+
+        $peak = (new AvailabilityService)->peakOccupation($room, $reserve->check_in, $reserve->check_out);
+
+        if ($peak > $room->inventory) {
+            $report->warning("{$label}: quarto {$room->external_code} com {$peak} reserva(s) simultâneas para {$room->inventory} unidade(s) (overbooking vindo do XML).");
         }
     }
 

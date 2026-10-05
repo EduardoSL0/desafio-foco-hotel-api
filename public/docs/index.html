@@ -4,7 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Foco Hotel API — Documentação</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+    <!-- Versão fixa com verificação de integridade (SRI): um arquivo alterado no CDN não é executado. -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.1/swagger-ui.css"
+          integrity="sha384-Ov4/wv3j2bmct8cDc5X4ngJZohVPzEmc6uDPH8WeljUxO5vtoykvMEfbu9Vh6RaW" crossorigin="anonymous">
     <style>
         :root {
             --navy: #1a1f2e; --navy-2: #242b3d; --accent: #2c6e8f; --gold: #c99a3b; --soft: #b8c0cc;
@@ -151,7 +153,7 @@
                     <td class="muted">Acesso total a todos os hotéis</td>
                     <td><button class="btn" title="Clique para preencher o token automaticamente" data-login="admin@foco.test">Entrar</button></td></tr>
                 <tr><td><span class="role">Gerente</span><br><span class="muted">gerente@foco.test</span></td>
-                    <td class="muted">Hotel Foco Prime: quartos, promoções, cupons, equipe e relatório</td>
+                    <td class="muted">Hotel Foco Prime: quartos, promoções, cupons, recepcionistas, estornos e relatório</td>
                     <td><button class="btn" title="Clique para preencher o token automaticamente" data-login="gerente@foco.test">Entrar</button></td></tr>
                 <tr><td><span class="role">Recepção</span><br><span class="muted">recepcao@foco.test</span></td>
                     <td class="muted">Hotel Foco Prime: consulta reservas e registra pagamentos</td>
@@ -178,7 +180,8 @@
 
 <div class="footer">Foco Hotel API · Laravel 12 · MySQL · Docker — especificação completa em <a href="openapi.yaml" target="_blank">openapi.yaml</a></div>
 
-<script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.1/swagger-ui-bundle.js"
+        integrity="sha384-ZPehFMQommnnuaZ4rpxgkgTT2DKFVp4hZC/7pLit+9Lek9T1YGSo23eHFbvNkXkw" crossorigin="anonymous"></script>
 <script>
 (() => {
     const ROLES = { admin: 'Admin', manager: 'Gerente', receptionist: 'Recepção' };
@@ -215,7 +218,8 @@
     const ui = SwaggerUIBundle({
         dom_id: '#swagger-ui',
         deepLinking: true,
-        persistAuthorization: true,
+        // O token fica só no sessionStorage (some ao fechar a aba), não no localStorage do Swagger.
+        persistAuthorization: false,
         tryItOutEnabled: true,
         filter: true,
         displayRequestDuration: true,

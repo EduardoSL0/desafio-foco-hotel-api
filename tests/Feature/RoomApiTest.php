@@ -197,4 +197,37 @@ class RoomApiTest extends TestCase
             ->assertJsonPath('data.inventory', 3)
             ->assertJsonPath('data.available_units', 2);
     }
+
+    public function test_search_treats_like_wildcards_literally(): void
+    {
+        Room::factory()->create(['name' => 'Suíte Master']);
+        Room::factory()->create(['name' => 'Quarto 100% reformado']);
+
+        $this->getJson(self::API.'/rooms?search=%')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.name', 'Quarto 100% reformado');
+        $this->getJson(self::API.'/rooms?search=_')->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_capacity_cannot_go_below_guests_of_future_reserves(): void
+    {
+        $room = Room::factory()->create(['capacity' => 3]);
+        $this->postJson(self::API.'/reserves', [
+            'room_id' => $room->id,
+            'check_in' => now()->addDays(5)->toDateString(),
+            'check_out' => now()->addDays(6)->toDateString(),
+            'guests' => [
+                ['name' => 'A', 'last_name' => 'Souza', 'phone' => '5571999990001'],
+                ['name' => 'B', 'last_name' => 'Souza', 'phone' => '5571999990002'],
+                ['name' => 'C', 'last_name' => 'Souza', 'phone' => '5571999990003'],
+            ],
+        ])->assertCreated();
+        Sanctum::actingAs(User::factory()->manager($room->hotel)->create());
+
+        $this->patchJson(self::API."/rooms/{$room->id}", ['capacity' => 2])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('capacity');
+        $this->patchJson(self::API."/rooms/{$room->id}", ['capacity' => 4])->assertOk();
+    }
 }

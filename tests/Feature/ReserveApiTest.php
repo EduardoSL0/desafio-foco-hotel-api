@@ -418,4 +418,36 @@ class ReserveApiTest extends TestCase
     {
         return now()->addDays($offset)->toDateString();
     }
+
+    public function test_idempotency_compares_json_content_not_key_order(): void
+    {
+        $room = Room::factory()->create(['inventory' => 3]);
+        $payload = $this->payload($room);
+
+        $first = $this->postJson(self::API.'/reserves', $payload, ['Idempotency-Key' => 'ordem-12345'])->assertCreated();
+        $reordered = $this->call('POST', self::API.'/reserves', [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_ACCEPT' => 'application/json',
+            'HTTP_IDEMPOTENCY_KEY' => 'ordem-12345',
+        ], json_encode(array_reverse($payload, true), JSON_PRETTY_PRINT));
+
+        $reordered->assertCreated()->assertHeader('Idempotent-Replayed', 'true');
+        $this->assertSame($first->json('data.id'), $reordered->json('data.id'));
+        $this->assertSame(1, Reserve::query()->count());
+    }
+
+    public function test_coupon_discount_is_spread_over_the_dailies(): void
+    {
+        $room = Room::factory()->create(['daily_price' => 100]);
+        Coupon::factory()->fixed(10)->create(['code' => 'DEZREAIS']);
+
+        $data = $this->postJson(self::API.'/reserves', $this->payload($room, ['coupon_code' => 'DEZREAIS']))
+            ->assertCreated()
+            ->json('data');
+
+        // 3 noites de 100 e cupom de 10: as diárias somam exatamente o total (290).
+        $net = array_sum(array_map(fn (array $d) => round($d['value'] - $d['discount'], 2), $data['dailies']));
+        $this->assertEqualsWithDelta(290.0, $net, 0.001);
+        $this->assertSame(290.0, $data['amounts']['total']);
+    }
 }

@@ -16,9 +16,13 @@ final class PromotionRule implements PriceRule
 {
     public function apply(PriceBreakdown $breakdown): void
     {
-        $promotions = Promotion::query()
-            ->applicableTo($breakdown->room, $breakdown->checkIn, $breakdown->checkOut->subDay())
-            ->get();
+        // A busca de disponibilidade pré-carrega as promoções do período para todos os quartos
+        // (relação "applicablePromotions"), evitando uma consulta por quarto.
+        $promotions = $breakdown->room->relationLoaded('applicablePromotions')
+            ? $breakdown->room->getRelation('applicablePromotions')
+            : Promotion::query()
+                ->applicableTo($breakdown->room, $breakdown->checkIn, $breakdown->checkOut->subDay())
+                ->get();
 
         if ($promotions->isEmpty()) {
             return;

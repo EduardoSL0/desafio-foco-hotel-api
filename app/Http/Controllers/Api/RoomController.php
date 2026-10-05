@@ -28,7 +28,8 @@ class RoomController extends Controller
         $rooms = Room::query()
             ->with('hotel')
             ->when($request->integer('hotel_id'), fn ($q, int $hotelId) => $q->where('hotel_id', $hotelId))
-            ->when($this->queryText($request, 'search'), fn ($q, string $s) => $q->where('name', 'like', "%{$s}%"))
+            // "%" e "_" digitados são procurados literalmente (não como curingas do LIKE).
+            ->when($this->queryText($request, 'search'), fn ($q, string $s) => $q->whereRaw("name LIKE ? ESCAPE '!'", ['%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $s).'%']))
             ->orderBy('id')
             ->paginate($perPage)
             ->withQueryString();
@@ -71,9 +72,29 @@ class RoomController extends Controller
             }
         }
 
+        // Reduzir a capacidade abaixo dos hóspedes de uma reserva futura deixaria a reserva inválida.
+        if ($request->has('capacity') && (int) $request->validated('capacity') < $room->capacity) {
+            $maxGuests = (int) $room->reserves()->active()
+                ->where('check_out', '>', CarbonImmutable::today())
+                ->withCount('guests')->get()->max('guests_count');
+
+            if ((int) $request->validated('capacity') < $maxGuests) {
+                throw ValidationException::withMessages([
+                    'capacity' => "Há reserva futura com {$maxGuests} hóspede(s); a capacidade não pode ser menor que isso.",
+                ]);
+            }
+        }
+
+        $before = $room->only(array_keys($request->validated()));
         $room->update($request->validated());
 
-        Log::info('room.updated', ['room_id' => $room->id, 'user_id' => $request->user()->id, 'fields' => array_keys($request->validated())]);
+        // Valores antes/depois: mudanças de preço e inventário ficam rastreáveis.
+        Log::info('room.updated', [
+            'room_id' => $room->id,
+            'user_id' => $request->user()->id,
+            'changes' => collect($room->getChanges())->except('updated_at')
+                ->map(fn ($new, $field) => ['from' => $before[$field] ?? null, 'to' => $new])->all(),
+        ]);
 
         return new RoomResource($room->load('hotel'));
     }

@@ -20,6 +20,11 @@ class StoreUserRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
+        // E-mail sempre em minúsculas: "Joao@x.com" e "joao@x.com" são a mesma conta.
+        if (is_string($this->input('email'))) {
+            $this->merge(['email' => mb_strtolower(trim($this->input('email')))]);
+        }
+
         // Gerentes cadastram sempre no próprio hotel; o campo pode ser omitido.
         if (! $this->has('hotel_id')
             && $this->input('role') !== UserRole::Admin->value

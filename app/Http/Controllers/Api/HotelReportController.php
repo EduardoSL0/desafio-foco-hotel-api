@@ -23,9 +23,14 @@ class HotelReportController extends Controller
             'to' => ['bail', 'sometimes', 'date_format:Y-m-d', ...DateInput::compareWith('after_or_equal', 'from', $request->query('from'))],
         ]);
 
-        $from = CarbonImmutable::parse($validated['from'] ?? now()->startOfMonth()->toDateString());
-        $to = CarbonImmutable::parse($validated['to'] ?? now()->endOfMonth()->toDateString());
+        // Data ausente é completada pelo mês da data informada (ou pelo mês atual, sem nenhuma):
+        // só "from" em março => março inteiro, e não "de março até o fim do mês atual".
+        $from = isset($validated['from']) ? CarbonImmutable::parse($validated['from']) : null;
+        $to = isset($validated['to']) ? CarbonImmutable::parse($validated['to']) : null;
+        $from ??= ($to ?? CarbonImmutable::now())->startOfMonth();
+        $to ??= $from->endOfMonth();
 
+        abort_if($to->lt($from), 422, 'A data final do relatório não pode ser anterior à inicial.');
         abort_if($from->diffInDays($to) > 366, 422, 'O período máximo do relatório é de 1 ano.');
 
         return response()->json(['data' => $reports->build($hotel, $from, $to)], 200, [], ApiResource::JSON_OPTIONS);

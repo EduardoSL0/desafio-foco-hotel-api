@@ -10,6 +10,7 @@ use App\Models\Coupon;
 use App\Models\Guest;
 use App\Models\Reserve;
 use App\Models\Room;
+use App\Models\User;
 use App\Services\Pricing\PriceBreakdown;
 use App\Services\Pricing\PriceCalculator;
 use App\Support\Money;
@@ -22,6 +23,9 @@ use Throwable;
 
 final class ReserveService
 {
+    /** Tentativas da transação: um deadlock eventual entre travas concorrentes é refeito em vez de virar erro 500. */
+    public const ATTEMPTS = 3;
+
     public function __construct(
         private readonly PriceCalculator $calculator,
         private readonly AvailabilityService $availability,
@@ -47,9 +51,13 @@ final class ReserveService
         ];
     }
 
-    public function create(array $data): Reserve
+    /**
+     * @param  User|null  $actor  usuário autenticado (equipe). Sem equipe do hotel, a reserva
+     *                            nasce como pré-reserva com prazo para pagamento.
+     */
+    public function create(array $data, ?User $actor = null): Reserve
     {
-        return DB::transaction(function () use ($data) {
+        return DB::transaction(function () use ($data, $actor) {
             // Lock no quarto serializa reservas concorrentes do mesmo quarto (evita overbooking).
             $room = Room::query()->with('hotel')->lockForUpdate()->findOrFail($data['room_id']);
             [$checkIn, $checkOut] = $this->period($data);
@@ -72,7 +80,7 @@ final class ReserveService
                 throw ValidationException::withMessages(['check_out' => 'O valor total da estadia ultrapassa o máximo suportado (R$ 99.999.999,99).']);
             }
 
-            $reserve = $this->persist($room, $breakdown, $coupon);
+            $reserve = $this->persist($room, $breakdown, $coupon, $this->holdUntil($room, $actor));
             $reserve->guests()->sync($this->resolveGuests($data['guests']));
 
             $coupon?->increment('used_count');
@@ -91,14 +99,29 @@ final class ReserveService
 
             $reserve = $reserve->fresh(['hotel', 'room', 'coupon', 'guests', 'dailies', 'payments']);
 
-            // Envia só depois do commit: se a transação falhar, o hóspede não recebe confirmação falsa.
-            DB::afterCommit(fn () => $this->sendConfirmation($reserve));
+            // A confirmação vai para o e-mail informado nesta reserva (não para um e-mail já
+            // cadastrado de um hóspede homônimo). Envia só depois do commit: se a transação
+            // falhar, o hóspede não recebe confirmação falsa.
+            $email = collect($data['guests'])->pluck('email')->first(fn ($e) => filled($e));
+            DB::afterCommit(fn () => $this->sendConfirmation($reserve, $email));
 
             return $reserve;
-        });
+        }, self::ATTEMPTS);
     }
 
-    public function cancel(Reserve $reserve): Reserve
+    /** Prazo da pré-reserva: só para reservas sem a equipe do hotel e com expiração ativa. */
+    private function holdUntil(Room $room, ?User $actor): ?CarbonImmutable
+    {
+        $hours = (int) config('hotel.reservations.pending_ttl_hours', 24);
+
+        if ($hours <= 0 || ($actor !== null && $actor->worksAt($room->hotel_id))) {
+            return null;
+        }
+
+        return CarbonImmutable::now()->addHours($hours);
+    }
+
+    public function cancel(Reserve $reserve, ?User $actor = null): Reserve
     {
         DB::transaction(function () use ($reserve) {
             // Lock na reserva: cancelamentos simultâneos não podem devolver o uso do cupom duas vezes.
@@ -115,18 +138,47 @@ final class ReserveService
             if ($reserve->coupon_id !== null) {
                 Coupon::query()->whereKey($reserve->coupon_id)->where('used_count', '>', 0)->decrement('used_count');
             }
-        });
+        }, self::ATTEMPTS);
 
-        Log::info('reserve.cancelled', ['reserve_id' => $reserve->id]);
+        Log::info('reserve.cancelled', ['reserve_id' => $reserve->id, 'by' => $actor?->id ?? 'sistema']);
 
         return $reserve;
     }
 
-    /** Falha no envio de e-mail é registrada, mas nunca desfaz a reserva já confirmada. */
-    private function sendConfirmation(Reserve $reserve): void
+    /**
+     * Cancela as pré-reservas cujo prazo venceu e devolve o uso do cupom.
+     * A condição é conferida de novo sob trava: um pagamento registrado no mesmo instante
+     * garante a reserva e ela não é cancelada.
+     */
+    public function expirePending(): int
     {
-        $email = $reserve->guests->first(fn (Guest $g) => filled($g->email))?->email;
+        $expired = 0;
 
+        Reserve::query()->expired()->orderBy('id')->pluck('id')->each(function (int $id) use (&$expired) {
+            DB::transaction(function () use ($id, &$expired) {
+                $reserve = Reserve::query()->lockForUpdate()->find($id);
+
+                if ($reserve === null || ! Reserve::query()->whereKey($id)->expired()->exists()) {
+                    return;
+                }
+
+                $reserve->update(['status' => ReserveStatus::Cancelled]);
+
+                if ($reserve->coupon_id !== null) {
+                    Coupon::query()->whereKey($reserve->coupon_id)->where('used_count', '>', 0)->decrement('used_count');
+                }
+
+                $expired++;
+                Log::info('reserve.expired', ['reserve_id' => $reserve->id]);
+            }, self::ATTEMPTS);
+        });
+
+        return $expired;
+    }
+
+    /** Falha no envio de e-mail é registrada, mas nunca desfaz a reserva já confirmada. */
+    private function sendConfirmation(Reserve $reserve, ?string $email): void
+    {
         if ($email === null) {
             return;
         }
@@ -139,7 +191,7 @@ final class ReserveService
         }
     }
 
-    private function persist(Room $room, PriceBreakdown $breakdown, ?Coupon $coupon): Reserve
+    private function persist(Room $room, PriceBreakdown $breakdown, ?Coupon $coupon, ?CarbonImmutable $expiresAt): Reserve
     {
         $reserve = Reserve::create([
             'hotel_id' => $room->hotel_id,
@@ -153,9 +205,11 @@ final class ReserveService
             'total' => Money::fromCents($breakdown->total()),
             'status' => ReserveStatus::Pending,
             'source' => 'api',
+            'expires_at' => $expiresAt,
         ]);
 
-        foreach ($breakdown->nights() as $date => $night) {
+        // Diárias com o desconto total (promoção + parte do cupom): somam exatamente o total sem taxas.
+        foreach ($breakdown->nightsWithCoupon() as $date => $night) {
             $reserve->dailies()->create([
                 'date' => $date,
                 'value' => Money::fromCents($night['value']),
@@ -169,14 +223,28 @@ final class ReserveService
         return $reserve;
     }
 
-    /** @return list<int> */
+    /**
+     * Hóspedes são deduplicados por nome + sobrenome + telefone. Um e-mail já cadastrado
+     * nunca é sobrescrito por uma reserva pública (seria uma forma de sequestrar o contato),
+     * apenas preenchido quando ainda está vazio.
+     *
+     * @return list<int>
+     */
     private function resolveGuests(array $guests): array
     {
         return collect($guests)
-            ->map(fn (array $g) => Guest::firstOrCreate(
-                ['name' => trim($g['name']), 'last_name' => trim($g['last_name']), 'phone' => $g['phone']],
-                ['email' => $g['email'] ?? null],
-            )->id)
+            ->map(function (array $g) {
+                $guest = Guest::firstOrCreate(
+                    ['name' => trim($g['name']), 'last_name' => trim($g['last_name']), 'phone' => $g['phone']],
+                    ['email' => $g['email'] ?? null],
+                );
+
+                if ($guest->email === null && filled($g['email'] ?? null)) {
+                    $guest->update(['email' => $g['email']]);
+                }
+
+                return $guest->id;
+            })
             ->unique()
             ->values()
             ->all();

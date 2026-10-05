@@ -19,7 +19,8 @@ use Illuminate\Support\Facades\DB;
  *  - RevPAR    = receita de hospedagem / room-nights disponíveis
  *
  * "Room-night" = uma unidade de quarto ocupada por uma noite. A receita considera o
- * valor líquido das diárias (valor - desconto promocional) de reservas não canceladas.
+ * valor líquido das diárias (valor - descontos de promoção e cupom, rateados por noite) de
+ * reservas não canceladas; taxas de serviço não são receita de hospedagem.
  */
 final class HotelReportService
 {
@@ -52,9 +53,14 @@ final class HotelReportService
             ->pluck('total', 'status')
             ->map(fn ($n) => (int) $n);
 
+        // Valor vendido e saldo a receber consideram só reservas ativas. O valor recebido
+        // considera todas (inclusive canceladas): dinheiro recebido e não estornado continua em caixa.
         $activeIds = (clone $overlapping)->active()->pluck('id');
+        $allIds = (clone $overlapping)->pluck('id');
         $booked = Money::toCents(Reserve::query()->whereIn('id', $activeIds)->sum('total'));
-        $paid = Money::toCents(Payment::query()->whereIn('reserve_id', $activeIds)->sum('value'));
+        $paidActive = Money::toCents(Payment::query()->received()->whereIn('reserve_id', $activeIds)->sum('value'));
+        $paid = Money::toCents(Payment::query()->received()->whereIn('reserve_id', $allIds)->sum('value'));
+        $refunded = Money::toCents(Payment::query()->whereNotNull('refunded_at')->whereIn('reserve_id', $allIds)->sum('value'));
 
         $topRooms = (clone $nights)
             ->join('rooms', 'rooms.id', '=', 'reserves.room_id')
@@ -84,7 +90,8 @@ final class HotelReportService
                 'by_status' => array_merge(array_fill_keys(array_column(ReserveStatus::cases(), 'value'), 0), $byStatus->all()),
                 'booked_amount' => Money::fromCents($booked),
                 'paid_amount' => Money::fromCents($paid),
-                'outstanding_amount' => Money::fromCents(max(0, $booked - $paid)),
+                'refunded_amount' => Money::fromCents($refunded),
+                'outstanding_amount' => Money::fromCents(max(0, $booked - $paidActive)),
             ],
             'top_rooms' => $topRooms,
         ];
